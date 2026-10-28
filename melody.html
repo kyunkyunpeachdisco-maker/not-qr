@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ふっかつのメロディ - QRじゃないQR</title>
+<meta name="description" content="URLや短い文章をファミコン風の曲に変えて演奏し、マイクで聞きとって元に戻すツール。">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta property="og:title" content="ふっかつのメロディ - QRじゃないQR">
+<meta property="og:description" content="URLや短い文章をファミコン風の曲に変えて演奏し、マイクで聞きとって元に戻すツール。">
+<meta property="og:url" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/melody.html">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'DotGothic16', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'MS Gothic', monospace;
+    background: #000; color: #f4f4f8; font-size: 16px; touch-action: manipulation;
+  }
+  #app { position: relative; height: 100dvh; max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; background: #05060d; }
+  .win { background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; }
+  .back { align-self: flex-start; padding: 10px 12px 0; color: #b6b6d8; font-size: 14px; text-decoration: none; }
+  h1 { text-align: center; color: #ffd23b; font-size: 24px; letter-spacing: 6px; padding: 2px 8px 6px; text-shadow: 2px 2px 0 #000; font-weight: normal; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px; }
+  .pane { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 8px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+  .pane > * { flex-shrink: 0; }
+  .hidden { display: none !important; }
+  .label { color: #ffd23b; font-size: 15px; letter-spacing: 1px; }
+  .info { color: #b6b6d8; font-size: 13px; line-height: 1.7; }
+  .msg { color: #ff8a8a; min-height: 1.6em; }
+  textarea { font-family: inherit; font-size: 18px; line-height: 1.6; width: 100%; resize: vertical; padding: 10px;
+    background: #0a0b1c; color: #f4f4f8; border: 2px solid #f4f4f8; border-radius: 5px; }
+  .score { background: #f4efdc; color: #1a1a2a; border-radius: 4px; padding: 6px; }
+  .score .playing, .score .playing * { color: #e0382a; fill: #e0382a; }
+  .listen { text-align: center; padding: 18px 12px; }
+  .listen .note { font-size: 40px; color: #ffd23b; min-height: 1.4em; }
+  .listen .state { margin-top: 6px; letter-spacing: 1px; }
+  .bar { height: 10px; background: #000; border: 1px solid #555; border-radius: 2px; overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: #4cd24c; transition: width 0.2s; }
+  .result { padding: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button, a.btn, label.btn { position: relative; display: block; font-family: inherit; font-size: 16px; padding: 13px 12px 13px 26px; border: 2px solid #f4f4f8; border-radius: 5px;
+    background: #0a0b1c; color: #f4f4f8; cursor: pointer; min-height: 50px; text-align: left; letter-spacing: 0.5px; text-decoration: none; }
+  button::before, a.btn::before, label.btn::before { content: '▶'; position: absolute; left: 9px; opacity: 0; color: #ffd23b; }
+  button:active, a.btn:active, label.btn:active { background: #f4f4f8; color: #0a0b1c; }
+  button:active::before, a.btn:active::before, label.btn:active::before { opacity: 1; color: #0a0b1c; }
+  button.primary, a.btn.primary { border-color: #ffd23b; color: #ffd23b; } .wide { grid-column: 1 / -1; }
+  .tabs button { text-align: center; padding-left: 12px; } .tabs button::before { display: none; }
+  .tabs button.on { border-color: #ffd23b; color: #ffd23b; }
+  .tabs button.on::after { content: '▼'; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); font-size: 10px; color: #ffd23b; }
+</style>
+</head>
+<body>
+<div id="app">
+  <a class="back" href="./">◀ もどる</a>
+  <h1>ふっかつのメロディ</h1>
+  <div class="tabs">
+    <button id="tab-make" onclick="switchTab('make')">つくる</button>
+    <button id="tab-listen" onclick="switchTab('listen')">きく</button>
+  </div>
+
+  <div class="pane" id="pane-make">
+    <div class="label">つたえたい ことば・URL</div>
+    <textarea id="make-in" rows="3" spellcheck="false" placeholder="例: https://example.com/"></textarea>
+    <button class="primary" onclick="doMake()">きょくに する（Ctrl+Enter）</button>
+    <div class="msg" id="make-msg"></div>
+    <div id="make-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+      <div class="info" id="make-info"></div>
+      <div class="actions">
+        <button class="primary" id="play-btn" onclick="togglePlay()">えんそう</button>
+        <button onclick="saveWav()">おとを ほぞん</button>
+      </div>
+      <div class="win score" id="score"></div>
+      <div class="info">はじめの1小節は前奏、つづく「ソラソラ」が合図です。合図のあとの音に、ことばが入っています。</div>
+    </div>
+  </div>
+
+  <div class="pane hidden" id="pane-listen">
+    <div class="win listen">
+      <div class="note" id="live-note"></div>
+      <div class="state" id="listen-state">マイクを つかって きょくを ききとります</div>
+      <div class="bar"><div id="listen-bar"></div></div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="mic-btn" onclick="toggleMic()">マイクで きく</button>
+      <label class="btn">ファイルを よむ<input type="file" accept="audio/*" id="file-in" hidden></label>
+    </div>
+    <div class="msg" id="listen-msg"></div>
+    <div id="listen-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+      <div class="label">きょくの なかみ</div>
+      <div class="win result" id="listen-out"></div>
+      <div class="actions">
+        <button id="listen-copy">なかみを コピー</button>
+        <a class="btn primary" id="listen-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
+      </div>
+    </div>
+    <div class="info">べつの きかいで ならした きょくを、はじめから きかせてください。しずかな ところで、スピーカーの ちかくに マイクを むけると よみとりやすくなります。</div>
+  </div>
+</div>
+
+<script id="core">
+// ===== リード・ソロモン符号(GF(256))。聞きまちがえた音を あとから なおす =====
+const GF_EXP = new Uint8Array(512), GF_LOG = new Uint8Array(256);
+{ let x = 1; for (let i = 0; i < 255; i++) { GF_EXP[i] = x; GF_LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; } for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255]; }
+const gfMul = (a, b) => (a && b ? GF_EXP[GF_LOG[a] + GF_LOG[b]] : 0);
+const gfPow = (a, n) => GF_EXP[(((GF_LOG[a] * n) % 255) + 255) % 255];
+const gfInv = (a) => GF_EXP[255 - GF_LOG[a]];
+const gfDiv = (a, b) => (a ? GF_EXP[(GF_LOG[a] + 255 - GF_LOG[b]) % 255] : 0);
+const polyScale = (p, x) => p.map((c) => gfMul(c, x));
+const polyAdd = (p, q) => {
+  const r = new Array(Math.max(p.length, q.length)).fill(0);
+  p.forEach((c, i) => { r[i + r.length - p.length] ^= c; });
+  q.forEach((c, i) => { r[i + r.length - q.length] ^= c; });
+  return r;
+};
+const polyMul = (p, q) => {
+  const r = new Array(p.length + q.length - 1).fill(0);
+  for (let i = 0; i < p.length; i++) for (let j = 0; j < q.length; j++) r[i + j] ^= gfMul(p[i], q[j]);
+  return r;
+};
+const polyEval = (p, x) => p.reduce((y, c) => gfMul(y, x) ^ c, 0);
+
+function rsEncode(msg, nsym) {
+  let g = [1];
+  for (let i = 0; i < nsym; i++) g = polyMul(g, [1, GF_EXP[i]]);
+  const out = [...msg, ...new Array(nsym).fill(0)];
+  for (let i = 0; i < msg.length; i++) { const c = out[i]; if (c) for (let j = 1; j < g.length; j++) out[i + j] ^= gfMul(g[j], c); }
+  return [...msg, ...out.slice(msg.length)];
+}
+// Berlekamp-Massey で誤りの位置、Forney で誤りの値を求める
+function rsDecode(code, nsym) {
+  const msg = [...code];
+  const synd = [0];
+  for (let i = 0; i < nsym; i++) synd.push(polyEval(msg, GF_EXP[i]));
+  if (synd.every((s) => !s)) return msg.slice(0, -nsym);
+  let errLoc = [1], oldLoc = [1];
+  for (let i = 0; i < nsym; i++) {
+    const K = i + 1;
+    let delta = synd[K];
+    for (let j = 1; j < errLoc.length; j++) delta ^= gfMul(errLoc[errLoc.length - 1 - j], synd[K - j]);
+    oldLoc = [...oldLoc, 0];
+    if (delta) {
+      if (oldLoc.length > errLoc.length) { const nl = polyScale(oldLoc, delta); oldLoc = polyScale(errLoc, gfInv(delta)); errLoc = nl; }
+      errLoc = polyAdd(errLoc, polyScale(oldLoc, delta));
+    }
+  }
+  while (errLoc.length && !errLoc[0]) errLoc.shift();
+  const errs = errLoc.length - 1;
+  if (errs * 2 > nsym) throw new Error('too many errors');
+  const rev = [...errLoc].reverse(), pos = [];
+  for (let i = 0; i < msg.length; i++) if (polyEval(rev, gfPow(2, i)) === 0) pos.push(msg.length - 1 - i);
+  if (pos.length !== errs) throw new Error('locate failed');
+  const coefPos = pos.map((p) => msg.length - 1 - p);
+  let eLoc = [1];
+  for (const c of coefPos) eLoc = polyMul(eLoc, polyAdd([1], [gfPow(2, c), 0]));
+  const errEval = polyMul([...synd].reverse(), eLoc).slice(-eLoc.length);
+  const X = coefPos.map((c) => gfPow(2, c));
+  for (let i = 0; i < X.length; i++) {
+    const xInv = gfInv(X[i]);
+    let prime = 1;
+    for (let j = 0; j < X.length; j++) if (j !== i) prime = gfMul(prime, 1 ^ gfMul(xInv, X[j]));
+    if (!prime) throw new Error('forney failed');
+    msg[pos[i]] ^= gfDiv(gfMul(X[i], polyEval(errEval, xInv)), prime);
+  }
+  for (let i = 0; i < nsym; i++) if (polyEval(msg, GF_EXP[i])) throw new Error('verify failed');
+  return msg.slice(0, -nsym);
+}
+
+// ===== ことば ⇔ バイト列(先頭1バイト: bit0=先頭のhttps://を省いた, bit1=圧縮した) =====
+async function pipeBytes(bytes, stream) {
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+}
+async function packText(text) {
+  const https = text.startsWith('https://') ? 1 : 0;
+  const raw = new TextEncoder().encode(https ? text.slice(8) : text);
+  let body = raw, zip = 0;
+  if (typeof CompressionStream === 'function') {
+    try { const z = await pipeBytes(raw, new CompressionStream('deflate-raw')); if (z.length < raw.length) { body = z; zip = 1; } } catch (e) {}
+  }
+  return [https | (zip << 1), ...body];
+}
+async function unpackText(bytes) {
+  let body = new Uint8Array(bytes.slice(1));
+  if (bytes[0] & 2) body = await pipeBytes(body, new DecompressionStream('deflate-raw'));
+  return (bytes[0] & 1 ? 'https://' : '') + new TextDecoder('utf-8', { fatal: true }).decode(body);
+}
+
+// ===== きょくの くみたて =====
+// 1音=8分音符=0.2秒。データはメロディだけに入れる(1音3ビット)。
+// メロディ音域(C5〜E6)には ほかのパートの基本音が入らないようにして、聞きとりやすくしている
+const T = 0.2;
+const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
+const DATA_MIDI = [72, 74, 76, 79, 81, 84, 86, 88]; // ド レ ミ ソ ラ ド レ ミ(ペンタトニック)
+const MARK_MIDI = [91, 93]; // 合図用のソ・ラ(データには使わない高さ)
+const CAND_HZ = [...DATA_MIDI, ...MARK_MIDI].map(midiHz);
+const NOTE_NAME = ['ド', 'レ', 'ミ', 'ソ', 'ラ', 'ド', 'レ', 'ミ', 'ソ', 'ラ'];
+const MARK_LEN = 4, HDR_LEN = 9; // 合図ソラソラ + 長さ(3音)を3回くりかえす
+const MAX_K = 191;
+const nsymFor = (k) => Math.max(8, Math.ceil(k / 3));
+// コード進行(根音の半音数, 短調か)。データには関係ない飾り
+const PROGS = [
+  [[0, 0], [7, 0], [9, 1], [5, 0]],
+  [[9, 1], [5, 0], [0, 0], [7, 0]],
+  [[0, 0], [9, 1], [5, 0], [7, 0]],
+  [[5, 0], [7, 0], [4, 1], [9, 1]],
+];
+const ROOT_NAME = { 0: 'C', 2: 'D', 4: 'E', 5: 'F', 7: 'G', 9: 'A' };
+
+async function songFromText(text) {
+  const payload = await packText(text);
+  const k = payload.length;
+  if (k > MAX_K) throw new Error('too long');
+  const code = rsEncode(payload, nsymFor(k));
+  const hdr = [(k >> 6) & 7, (k >> 3) & 7, k & 7];
+  const bits = [];
+  for (const b of code) for (let i = 7; i >= 0; i--) bits.push((b >> i) & 1);
+  while (bits.length % 3) bits.push(0);
+  const data = [];
+  for (let i = 0; i < bits.length; i += 3) data.push(bits[i] * 4 + bits[i + 1] * 2 + bits[i + 2]);
+  const melody = [...new Array(8).fill(null), ...MARK_MIDI, ...MARK_MIDI, ...[...hdr, ...hdr, ...hdr, ...data].map((s) => DATA_MIDI[s])];
+  while (melody.length % 8) melody.push(null);
+  melody.push(84, ...new Array(7).fill(null)); // さいごの小節は のばして おわる
+  return { melody, prog: PROGS[code.reduce((a, b) => a + b, 0) % PROGS.length], k, n: code.length };
+}
+const songBars = (song) => song.melody.length / 8;
+const chordOf = (song, b) => (b === songBars(song) - 1 ? [0, 0] : song.prog[b % 4]);
+function triad([root, minor]) {
+  return [0, minor ? 3 : 4, 7].map((x) => { let n = 48 + root + x; while (n < 55) n += 12; while (n >= 67) n -= 12; return n; }).sort((a, b) => a - b);
+}
+
+function scheduleSong(ctx, song, t0) {
+  const out = ctx.createGain(); out.gain.value = 0.7; out.connect(ctx.destination);
+  const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  const nd = noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const tone = (type, hz, start, dur, vol) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = hz;
+    g.gain.setValueAtTime(0, start); g.gain.linearRampToValueAtTime(vol, start + 0.005);
+    g.gain.setValueAtTime(vol, start + dur - 0.01); g.gain.linearRampToValueAtTime(0, start + dur);
+    o.connect(g); g.connect(out); o.start(start); o.stop(start + dur + 0.02);
+  };
+  const hit = (start, dur, vol, ftype, fhz) => {
+    const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noise; f.type = ftype; f.frequency.value = fhz;
+    g.gain.setValueAtTime(vol, start); g.gain.exponentialRampToValueAtTime(0.001, start + dur);
+    s.connect(f); f.connect(g); g.connect(out); s.start(start, Math.random() * 0.5); s.stop(start + dur + 0.01);
+  };
+  const bars = songBars(song);
+  for (let b = 0; b < bars; b++) {
+    const chord = chordOf(song, b), tri = triad(chord), bass = 36 + chord[0];
+    const tb = t0 + b * 8 * T;
+    if (b === bars - 1) {
+      tone('triangle', midiHz(bass), tb, 7 * T, 0.35);
+      tri.forEach((m) => tone('square', midiHz(m), tb, 7 * T, 0.03));
+      hit(tb, 1.2, 0.15, 'highpass', 5000);
+      continue;
+    }
+    for (let s = 0; s < 8; s++) {
+      const t = tb + s * T;
+      tone('triangle', midiHz(bass + (s % 2 ? 12 : 0)), t, T * 0.9, 0.35);
+      const arp = [0, 1, 2, 1];
+      tone('square', midiHz(tri[arp[(s * 2) % 4]]), t, T * 0.45, 0.035);
+      tone('square', midiHz(tri[arp[(s * 2 + 1) % 4]]), t + T / 2, T * 0.45, 0.035);
+      hit(t, 0.03, 0.05, 'highpass', 7000);
+      if (s % 4 === 0) hit(t, 0.08, 0.5, 'lowpass', 150);
+      if (s % 4 === 2) hit(t, 0.05, 0.18, 'highpass', 1000);
+    }
+  }
+  song.melody.forEach((m, i) => {
+    if (m === null) return;
+    const last = i >= song.melody.length - 8;
+    tone('square', midiHz(m), t0 + i * T, last ? 7 * T : T * 0.88, 0.13);
+  });
+  return song.melody.length * T + 0.3;
+}
+async function renderSong(song, sr = 44100) {
+  const dur = song.melody.length * T + 0.5;
+  const ctx = new OfflineAudioContext(1, Math.ceil(dur * sr), sr);
+  scheduleSong(ctx, song, 0.1);
+  return ctx.startRendering();
+}
+
+function songToAbc(song) {
+  const name = { 72: 'c', 74: 'd', 76: 'e', 79: 'g', 81: 'a', 84: "c'", 86: "d'", 88: "e'", 91: "g'", 93: "a'" };
+  let abc = 'X:1\nM:4/4\nL:1/8\nQ:1/4=150\nK:C\n';
+  const bars = songBars(song);
+  for (let b = 0; b < bars; b++) {
+    const [root, minor] = chordOf(song, b);
+    const notes = song.melody.slice(b * 8, b * 8 + 8);
+    let body;
+    if (b === bars - 1) body = "c'8";
+    else if (notes.every((m) => m === null)) body = 'z8';
+    else body = notes.map((m) => (m === null ? 'z' : name[m])).join('');
+    abc += `"${ROOT_NAME[root]}${minor ? 'm' : ''}"${body}` + (b === bars - 1 ? ' |]' : b % 4 === 3 ? ' |\n' : ' | ');
+  }
+  return abc;
+}
+
+// ===== ききとり =====
+// 10ミリ秒ごとに、10個の高さそれぞれの強さを Goertzel法で はかる
+function makeListener(sr) {
+  const N = 2048, hop = Math.round(sr / 100);
+  const win = new Float32Array(N).map((_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+  const co = CAND_HZ.map((f) => 2 * Math.cos((2 * Math.PI * f) / sr));
+  let buf = new Float32Array(sr * 10), len = 0;
+  const frames = [];
+  return {
+    frames, sync: null, scanFrom: 0,
+    append(chunk) {
+      if (len + chunk.length > buf.length) { const nb = new Float32Array(Math.max(buf.length * 2, len + chunk.length)); nb.set(buf.subarray(0, len)); buf = nb; }
+      buf.set(chunk, len); len += chunk.length;
+      while (frames.length * hop + N <= len) {
+        const st = frames.length * hop, e = new Float32Array(co.length);
+        for (let c = 0; c < co.length; c++) {
+          const cc = co[c]; let s1 = 0, s2 = 0;
+          for (let i = 0; i < N; i++) { const s0 = buf[st + i] * win[i] + cc * s1 - s2; s2 = s1; s1 = s0; }
+          e[c] = s1 * s1 + s2 * s2 - cc * s1 * s2;
+        }
+        frames.push(e);
+      }
+    },
+    // 時刻tから始まる1音ぶんの、まんなかあたり(35%〜85%)の強さの合計。まだ聞こえていなければnull
+    slot(t) {
+      const a = Math.max(0, Math.ceil(((t + 0.35 * T) * sr - N / 2) / hop)), b = Math.floor(((t + 0.85 * T) * sr - N / 2) / hop);
+      if (b >= frames.length) return null;
+      const v = new Float32Array(co.length);
+      for (let k = a; k <= b; k++) for (let c = 0; c < co.length; c++) v[c] += frames[k][c];
+      return v;
+    },
+  };
+}
+const share = (v, c, n = v.length) => { let s = 0; for (let i = 0; i < n; i++) s += v[i]; return s > 0 ? v[c] / s : 0; };
+const argmax8 = (v) => { let best = 0; for (let i = 1; i < 8; i++) if (v[i] > v[best]) best = i; return best; };
+
+// 聞こえたぶんだけ読みすすめる。{status: 'listening'|'reading'|'done'|'fail', got, total, text}
+async function listenStep(L) {
+  if (L.sync === null) {
+    let t = L.scanFrom, region = null, waiting = false;
+    for (;; t += 0.01) {
+      let s = 0;
+      for (let m = 0; m < MARK_LEN; m++) { const v = L.slot(t + m * T); if (!v) { waiting = true; break; } s += share(v, 8 + (m % 2)); }
+      if (waiting) break;
+      if (s > 3) { if (!region) region = [t, t]; region[1] = t; } else if (region) break;
+    }
+    if (waiting) { L.scanFrom = region ? region[0] : Math.max(0, t - 0.01); return { status: 'listening' }; }
+    L.sync = (region[0] + region[1]) / 2;
+  }
+  const hdr = [];
+  for (let j = 0; j < 3; j++) {
+    const sum = new Float32Array(8);
+    for (let r = 0; r < 3; r++) {
+      const v = L.slot(L.sync + (MARK_LEN + r * 3 + j) * T);
+      if (!v) return { status: 'reading', got: 0, total: 1 };
+      for (let c = 0; c < 8; c++) sum[c] += share(v, c, 8);
+    }
+    hdr.push(argmax8(sum));
+  }
+  const k = hdr[0] * 64 + hdr[1] * 8 + hdr[2];
+  if (k < 1 || k > MAX_K) return { status: 'fail' };
+  const nsym = nsymFor(k), n = k + nsym, total = Math.ceil((n * 8) / 3);
+  const bits = [];
+  for (let i = 0; i < total; i++) {
+    const v = L.slot(L.sync + (MARK_LEN + HDR_LEN + i) * T);
+    if (!v) return { status: 'reading', got: i, total };
+    const s = argmax8(v);
+    bits.push((s >> 2) & 1, (s >> 1) & 1, s & 1);
+  }
+  const code = [];
+  for (let i = 0; i < n; i++) code.push(bits.slice(i * 8, i * 8 + 8).reduce((x, b) => x * 2 + b, 0));
+  try { return { status: 'done', text: await unpackText(rsDecode(code, nsym)), got: total, total }; }
+  catch (e) { return { status: 'fail' }; }
+}
+async function decodeSamples(samples, sr) {
+  const L = makeListener(sr);
+  L.append(samples);
+  L.append(new Float32Array(sr)); // 末尾がちょうど切れていても最後の音まで はかれるように
+  const r = await listenStep(L);
+  return r.status === 'done' ? r : { status: 'fail' };
+}
+</script>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function switchTab(name) {
+  for (const t of ['make', 'listen']) {
+    $('pane-' + t).classList.toggle('hidden', t !== name);
+    $('tab-' + t).classList.toggle('on', t === name);
+  }
+}
+
+// ===== つくる =====
+let song = null, playCtx = null, playTimer = null;
+async function doMake() {
+  const text = $('make-in').value;
+  $('make-msg').textContent = '';
+  if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
+  stopPlay();
+  try { song = await songFromText(text); }
+  catch (e) { $('make-msg').textContent = 'ながすぎて きょくに できません'; return; }
+  const sec = Math.round(song.melody.length * T);
+  $('make-info').textContent = `${songBars(song)}小節・やく${sec}びょう`;
+  $('make-result').classList.remove('hidden');
+  if (window.ABCJS) ABCJS.renderAbc('score', songToAbc(song), { responsive: 'resize', add_classes: true, paddingtop: 0, paddingbottom: 0 });
+  else $('score').textContent = 'がくふを ひょうじできませんでした（ネットにつながっているか たしかめてください）';
+}
+function stopPlay() {
+  if (playCtx) { playCtx.close(); playCtx = null; }
+  clearInterval(playTimer);
+  document.querySelectorAll('#score .playing').forEach((el) => el.classList.remove('playing'));
+  $('play-btn').textContent = 'えんそう';
+}
+function togglePlay() {
+  if (playCtx) return stopPlay();
+  playCtx = new AudioContext();
+  const start = playCtx.currentTime + 0.1, dur = scheduleSong(playCtx, song, start), ctx = playCtx;
+  $('play-btn').textContent = 'とめる';
+  // 楽譜の いま鳴っている音を赤くする
+  const els = [...document.querySelectorAll('#score .abcjs-note, #score .abcjs-rest')];
+  let lastEl = null;
+  const slotEl = [];
+  for (let b = 0, e = 0; b < songBars(song); b++) {
+    const notes = song.melody.slice(b * 8, b * 8 + 8);
+    if (b === songBars(song) - 1 || notes.every((m) => m === null)) { for (let s = 0; s < 8; s++) slotEl.push(els[e]); e++; }
+    else for (let s = 0; s < 8; s++) slotEl.push(els[e++]);
+  }
+  playTimer = setInterval(() => {
+    const t = ctx.currentTime - start;
+    if (t > dur) return stopPlay();
+    const el = slotEl[Math.floor(t / T)];
+    if (el !== lastEl) { if (lastEl) lastEl.classList.remove('playing'); if (el) el.classList.add('playing'); lastEl = el; }
+  }, 30);
+}
+function wavBlob(buf) {
+  const d = buf.getChannelData(0), sr = buf.sampleRate, ab = new ArrayBuffer(44 + d.length * 2), v = new DataView(ab);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + d.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, d.length * 2, true);
+  for (let i = 0; i < d.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i])) * 32767, true);
+  return new Blob([ab], { type: 'audio/wav' });
+}
+async function saveWav() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(wavBlob(await renderSong(song)));
+  a.download = 'fukkatsu-melody.wav'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ===== きく =====
+let mic = null;
+function showProgress(r) {
+  const states = { listening: '合図を まっています…', reading: 'よみとっています…' };
+  if (states[r.status]) $('listen-state').textContent = states[r.status];
+  $('listen-bar').style.width = r.total ? `${Math.round((r.got / r.total) * 100)}%` : '0';
+}
+function showResult(r) {
+  $('listen-msg').textContent = r.status === 'done' ? '' : 'よみとれませんでした。もういちど はじめから きかせてください';
+  $('listen-result').classList.toggle('hidden', r.status !== 'done');
+  if (r.status !== 'done') return;
+  $('listen-out').textContent = r.text;
+  $('listen-copy').onclick = () => navigator.clipboard.writeText(r.text).catch(() => {});
+  let url = null;
+  if (!/\s/.test(r.text.trim())) { try { url = new URL(r.text.trim()); } catch (e) {} }
+  const ok = url && (url.protocol === 'https:' || url.protocol === 'http:');
+  $('listen-link').classList.toggle('hidden', !ok);
+  if (ok) $('listen-link').href = url.href;
+}
+function stopMic(msg) {
+  if (!mic) return;
+  clearInterval(mic.timer); mic.stream.getTracks().forEach((t) => t.stop()); mic.ctx.close(); mic = null;
+  $('mic-btn').textContent = 'マイクで きく'; $('live-note').textContent = '';
+  if (msg) $('listen-state').textContent = msg;
+}
+async function toggleMic() {
+  if (mic) return stopMic('とめました');
+  $('listen-msg').textContent = ''; $('listen-result').classList.add('hidden');
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+  catch (e) { $('listen-msg').textContent = 'マイクが つかえません。ブラウザの きょかを たしかめてください'; return; }
+  const ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream), proc = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain();
+  mute.gain.value = 0; src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  const L = makeListener(ctx.sampleRate), started = Date.now();
+  proc.onaudioprocess = (e) => L.append(e.inputBuffer.getChannelData(0));
+  let busy = false;
+  mic = { stream, ctx, timer: setInterval(async () => {
+    if (busy || !mic) return;
+    busy = true;
+    const f = L.frames[L.frames.length - 1];
+    if (f) { const c = f.indexOf(Math.max(...f)); $('live-note').textContent = share(f, c) > 0.5 ? '♪' + NOTE_NAME[c] : ''; }
+    const r = await listenStep(L);
+    showProgress(r);
+    if (r.status === 'done' || r.status === 'fail') { stopMic(r.status === 'done' ? 'よみとれました' : 'よみとれませんでした'); showResult(r); }
+    else if (Date.now() - started > 120000) { stopMic('じかんぎれです'); showResult({ status: 'fail' }); }
+    busy = false;
+  }, 300) };
+  $('mic-btn').textContent = 'とめる';
+  $('listen-state').textContent = '合図を まっています…'; $('listen-bar').style.width = '0';
+}
+$('file-in').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  stopMic();
+  $('listen-state').textContent = 'よみとっています…'; $('listen-msg').textContent = '';
+  let r = { status: 'fail' };
+  try {
+    const ctx = new AudioContext(), buf = await ctx.decodeAudioData(await file.arrayBuffer()); ctx.close();
+    r = await decodeSamples(buf.getChannelData(0), buf.sampleRate);
+  } catch (err) {}
+  $('listen-state').textContent = r.status === 'done' ? 'よみとれました' : 'よみとれませんでした';
+  $('listen-bar').style.width = r.status === 'done' ? '100%' : '0';
+  showResult(r);
+});
+
+$('make-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doMake(); } });
+document.addEventListener('DOMContentLoaded', () => switchTab('make'));
+</script>
+</body>
+</html>

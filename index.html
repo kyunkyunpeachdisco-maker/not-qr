@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>QRじゃないQR - ことばやURLを じゅもんや メロディに かえる</title>
+<meta name="description" content="URLや短い文章を、ふっかつのじゅもん風のひらがなや、ファミコン風の曲に変えて伝えるツール。QRコードのかわりに。">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta property="og:title" content="QRじゃないQR - ことばやURLを じゅもんや メロディに かえる">
+<meta property="og:description" content="URLや短い文章を、ふっかつのじゅもん風のひらがなや、ファミコン風の曲に変えて伝えるツール。QRコードのかわりに。">
+<meta property="og:url" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body { font-family: 'DotGothic16', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'MS Gothic', monospace; background: #000; color: #f4f4f8; font-size: 16px; }
+  #app { min-height: 100dvh; max-width: 680px; margin: 0 auto; padding: 24px 12px calc(24px + env(safe-area-inset-bottom)); background: #05060d; display: flex; flex-direction: column; gap: 14px; }
+  .win { background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; }
+  h1 { text-align: center; color: #ffd23b; font-size: 30px; letter-spacing: 4px; text-shadow: 2px 2px 0 #000; font-weight: normal; }
+  .lead { text-align: center; color: #b6b6d8; line-height: 1.8; }
+  a.item { position: relative; display: block; padding: 16px 16px 16px 34px; color: #f4f4f8; text-decoration: none; }
+  a.item::before { content: '▶'; position: absolute; left: 12px; top: 17px; color: #ffd23b; opacity: 0; }
+  a.item:hover::before, a.item:focus::before, a.item:active::before { opacity: 1; }
+  a.item .name { color: #ffd23b; font-size: 20px; letter-spacing: 2px; }
+  a.item .desc { margin-top: 6px; color: #d0d0e4; font-size: 14px; line-height: 1.7; }
+  .ver { text-align: center; color: #6a6a88; font-size: 12px; margin-top: auto; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>QRじゃないQR</h1>
+  <p class="lead">ことばや URLを、<br>じゅもんや メロディに かえて つたえよう</p>
+  <a class="win item" href="jumon.html">
+    <div class="name">ふっかつのじゅもん</div>
+    <div class="desc">ひらがなの じゅもんに かえる。見まちがえやすい文字は つかわないので、紙に書いて わたせる。</div>
+  </a>
+  <a class="win item" href="melody.html">
+    <div class="name">ふっかつのメロディ</div>
+    <div class="desc">ファミコン風の きょくに かえる。ならした きょくを マイクで きいて、もとに もどせる。</div>
+  </a>
+  <div class="ver" id="ver"></div>
+</div>
+<script>
+const APP_VERSION = 'v1.0.0';
+document.getElementById('ver').textContent = APP_VERSION.startsWith('__') ? '開発版' : APP_VERSION;
+</script>
+</body>
+</html>

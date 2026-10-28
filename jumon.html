@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ふっかつのじゅもん - QRじゃないQR</title>
+<meta name="description" content="URLや短い文章を、ふっかつのじゅもん風のひらがなに変えたり元に戻したりするツール。見間違えやすい文字は使いません。">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta property="og:title" content="ふっかつのじゅもん - QRじゃないQR">
+<meta property="og:description" content="URLや短い文章を、ふっかつのじゅもん風のひらがなに変えたり元に戻したりするツール。見間違えやすい文字は使いません。">
+<meta property="og:url" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/jumon.html">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'DotGothic16', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'MS Gothic', monospace;
+    background: #000; color: #f4f4f8; font-size: 16px; touch-action: manipulation;
+  }
+  #app { position: relative; height: 100dvh; max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; background: #05060d; }
+  .win { background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; }
+  .back { align-self: flex-start; padding: 10px 12px 0; color: #b6b6d8; font-size: 14px; text-decoration: none; }
+  h1 { text-align: center; color: #ffd23b; font-size: 24px; letter-spacing: 6px; padding: 2px 8px 6px; text-shadow: 2px 2px 0 #000; font-weight: normal; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px; }
+  .pane { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 8px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+  .pane > * { flex-shrink: 0; }
+  .hidden { display: none !important; }
+  .label { color: #ffd23b; font-size: 15px; letter-spacing: 1px; }
+  .info { color: #b6b6d8; font-size: 13px; line-height: 1.7; }
+  .msg { color: #ff8a8a; min-height: 1.6em; }
+  textarea { font-family: inherit; font-size: 18px; line-height: 1.6; width: 100%; resize: vertical; padding: 10px;
+    background: #0a0b1c; color: #f4f4f8; border: 2px solid #f4f4f8; border-radius: 5px; }
+  textarea.jumon-in { font-size: 22px; letter-spacing: 4px; }
+  .jumon { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 20px; padding: 18px 12px;
+    font-size: 26px; letter-spacing: 5px; line-height: 1.7; user-select: text; -webkit-user-select: text; }
+  .jumon span { white-space: nowrap; }
+  .result { padding: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button, a.btn { position: relative; display: block; font-family: inherit; font-size: 16px; padding: 13px 12px 13px 26px; border: 2px solid #f4f4f8; border-radius: 5px;
+    background: #0a0b1c; color: #f4f4f8; cursor: pointer; min-height: 50px; text-align: left; letter-spacing: 0.5px; text-decoration: none; }
+  button::before, a.btn::before { content: '▶'; position: absolute; left: 9px; opacity: 0; color: #ffd23b; }
+  button:active, a.btn:active { background: #f4f4f8; color: #0a0b1c; } button:active::before, a.btn:active::before { opacity: 1; color: #0a0b1c; }
+  button.primary, a.btn.primary { border-color: #ffd23b; color: #ffd23b; } .wide { grid-column: 1 / -1; }
+  .tabs button { text-align: center; padding-left: 12px; } .tabs button::before { display: none; }
+  .tabs button.on { border-color: #ffd23b; color: #ffd23b; }
+  .tabs button.on::after { content: '▼'; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); font-size: 10px; color: #ffd23b; }
+  .kbd { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; padding: 8px; }
+  .kbd button { padding: 6px 0; min-height: 44px; text-align: center; font-size: 20px; border-width: 1px; }
+  .kbd button::before { display: none; }
+  .kbd button.fn { grid-column: span 4; font-size: 16px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <a class="back" href="./">◀ もどる</a>
+  <h1>ふっかつのじゅもん</h1>
+  <div class="tabs">
+    <button id="tab-make" onclick="switchTab('make')">つくる</button>
+    <button id="tab-read" onclick="switchTab('read')">となえる</button>
+  </div>
+
+  <div class="pane" id="pane-make">
+    <div class="label">つたえたい ことば・URL</div>
+    <textarea id="make-in" rows="4" spellcheck="false" placeholder="例: https://example.com/"></textarea>
+    <button class="primary" onclick="doMake()">じゅもんに かえる（Ctrl+Enter）</button>
+    <div class="msg" id="make-msg"></div>
+    <div id="make-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+      <div class="win jumon" id="make-out"></div>
+      <div class="info" id="make-info"></div>
+      <div class="actions">
+        <button onclick="copyText(lastJumon, 'じゅもんを コピーしました')">じゅもんを コピー</button>
+        <button onclick="copyText(shareUrl(lastJumon), 'リンクを コピーしました')">リンクを コピー</button>
+        <button class="wide" onclick="saveImage()">がぞうで ほぞん</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane hidden" id="pane-read">
+    <div class="label">じゅもんを いれてください</div>
+    <textarea id="read-in" class="jumon-in" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    <div class="win kbd" id="kbd"></div>
+    <button class="primary" onclick="doRead()">となえる（Ctrl+Enter）</button>
+    <div class="msg" id="read-msg"></div>
+    <div id="read-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+      <div class="label">じゅもんの なかみ</div>
+      <div class="win result" id="read-out"></div>
+      <div class="actions">
+        <button id="read-copy">なかみを コピー</button>
+        <a class="btn primary" id="read-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
+      </div>
+    </div>
+    <div class="info">見まちがえやすい文字（お・り・ら・わ・れ・る・ほ・け・な など）は使っていません。これらを打ってしまっても、似た文字として読みとります。カタカナ・濁点・小さい文字もそのまま受けつけます。</div>
+  </div>
+</div>
+
+<script id="core">
+// 見まちがえやすい組（あ/お、い/り、う/ら、ね/れ/わ、ろ/る、は/ほ/け、た/な、さ/き/ち、ぬ/め など）から1文字ずつだけ残した32文字＝5ビット
+const JUMON_KANA = 'あいうえかきくこしすせたちつてとにねのはひふへまみむもやゆよろん';
+// 使っていない文字を打たれたときの読みかえ
+const JUMON_ALIAS = { 'お': 'あ', 'り': 'い', 'ら': 'う', 'わ': 'ね', 'れ': 'ね', 'る': 'ろ', 'ほ': 'は', 'け': 'は', 'な': 'た',
+  'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'あ', 'っ': 'つ', 'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'ゎ': 'ね' };
+
+// CRC-10 (x^10+x^9+x^5+x^4+x+1)。10ビット以内の連続した誤りは必ず見つかるので、1文字の打ち間違いと隣どうしの入れかわりは必ず弾ける
+function crc10(bits) {
+  let c = 0x3ff;
+  for (const b of bits) { const top = ((c >> 9) & 1) ^ b; c = (c << 1) & 0x3ff; if (top) c ^= 0x233; }
+  return c;
+}
+async function pipeBytes(bytes, stream) {
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+}
+// 先頭2ビット=先頭のhttps://を省いたか・圧縮したか、続けて本文のバイト列、5ビット区切りまで0埋め、最後にCRC-10の2文字
+async function jumonEncode(text) {
+  const https = text.startsWith('https://') ? 1 : 0;
+  const raw = new TextEncoder().encode(https ? text.slice(8) : text);
+  let body = raw, zip = 0;
+  if (typeof CompressionStream === 'function') {
+    try { const z = await pipeBytes(raw, new CompressionStream('deflate-raw')); if (z.length < raw.length) { body = z; zip = 1; } } catch (e) {}
+  }
+  const bits = [https, zip];
+  for (const b of body) for (let i = 7; i >= 0; i--) bits.push((b >> i) & 1);
+  while (bits.length % 5) bits.push(0);
+  const crc = crc10(bits);
+  for (let i = 9; i >= 0; i--) bits.push((crc >> i) & 1);
+  let out = '';
+  for (let i = 0; i < bits.length; i += 5) out += JUMON_KANA[bits.slice(i, i + 5).reduce((v, b) => v * 2 + b, 0)];
+  return out;
+}
+function jumonNormalize(str) {
+  let s = str.normalize('NFKC').replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  s = s.normalize('NFD').replace(/[゙゚]/g, '').normalize('NFC').replace(/\s/g, '');
+  let text = '', bad = '';
+  for (const ch of s) {
+    const c = JUMON_KANA.includes(ch) ? ch : JUMON_ALIAS[ch];
+    if (c) text += c; else if (!bad.includes(ch)) bad += ch;
+  }
+  return { text, bad };
+}
+async function jumonDecode(input) {
+  const { text, bad } = jumonNormalize(input);
+  if (bad) return { error: `つかえない もじが あります：${bad}` };
+  if (text.length < 4) return { error: 'じゅもんが みじかすぎます' };
+  const bits = [];
+  for (const ch of text) { const v = JUMON_KANA.indexOf(ch); for (let i = 4; i >= 0; i--) bits.push((v >> i) & 1); }
+  const data = bits.slice(0, -10);
+  if (crc10(data) !== bits.slice(-10).reduce((v, b) => v * 2 + b, 0)) return { error: 'じゅもんが ちがいます' };
+  const n = Math.floor((data.length - 2) / 8);
+  if (data.slice(2 + n * 8).some((b) => b)) return { error: 'じゅもんが ちがいます' };
+  let bytes = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bytes[i] = data.slice(2 + i * 8, 10 + i * 8).reduce((v, b) => v * 2 + b, 0);
+  try {
+    if (data[1]) {
+      if (typeof DecompressionStream !== 'function') return { error: 'このブラウザでは よめない じゅもんです' };
+      bytes = await pipeBytes(bytes, new DecompressionStream('deflate-raw'));
+    }
+    return { text: (data[0] ? 'https://' : '') + new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+  } catch (e) {
+    return { error: 'じゅもんが ちがいます' };
+  }
+}
+</script>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let lastJumon = '';
+
+function switchTab(name) {
+  for (const t of ['make', 'read']) {
+    $('pane-' + t).classList.toggle('hidden', t !== name);
+    $('tab-' + t).classList.toggle('on', t === name);
+  }
+}
+const groups = (s, n) => s.match(new RegExp(`.{1,${n}}`, 'g')) || [];
+const shareUrl = (j) => `${location.origin}${location.pathname}#jumon=${encodeURIComponent(j)}`;
+
+async function doMake() {
+  const text = $('make-in').value;
+  $('make-msg').textContent = '';
+  if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
+  lastJumon = await jumonEncode(text);
+  $('make-out').replaceChildren(...groups(lastJumon, 4).map((g) => Object.assign(document.createElement('span'), { textContent: g })));
+  $('make-info').textContent = `${lastJumon.length}もじ` + (lastJumon.length > 52 ? '（ながい じゅもんです。手で打つより リンクや がぞうで わたすのが おすすめ）' : '');
+  $('make-result').classList.remove('hidden');
+}
+
+async function doRead() {
+  const r = await jumonDecode($('read-in').value);
+  $('read-msg').textContent = r.error || '';
+  $('read-result').classList.toggle('hidden', !!r.error);
+  if (r.error) return;
+  $('read-out').textContent = r.text;
+  $('read-copy').onclick = () => copyText(r.text, 'なかみを コピーしました');
+  let url = null;
+  if (!/\s/.test(r.text.trim())) { try { url = new URL(r.text.trim()); } catch (e) {} }
+  const ok = url && (url.protocol === 'https:' || url.protocol === 'http:');
+  $('read-link').classList.toggle('hidden', !ok);
+  if (ok) $('read-link').href = url.href;
+}
+
+async function copyText(s, done) {
+  const msg = $('pane-make').classList.contains('hidden') ? $('read-msg') : $('make-msg');
+  try { await navigator.clipboard.writeText(s); msg.style.color = '#7ad17a'; msg.textContent = done; }
+  catch (e) { msg.style.color = ''; msg.textContent = 'コピーできませんでした。長おしで えらんで コピーしてください'; }
+  setTimeout(() => { msg.style.color = ''; if (msg.textContent === done) msg.textContent = ''; }, 2000);
+}
+
+async function saveImage() {
+  try { await document.fonts.load('34px "DotGothic16"'); } catch (e) {}
+  const rows = groups(lastJumon, 12);
+  const W = 720, top = 120, lineH = 56, H = top + rows.length * lineH + 40;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#0a0b1c'; x.fillRect(16, 16, W - 32, H - 32);
+  x.strokeStyle = '#f4f4f8'; x.lineWidth = 6; x.strokeRect(19, 19, W - 38, H - 38);
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = '30px "DotGothic16", monospace'; x.fillStyle = '#ffd23b'; x.fillText('ふっかつのじゅもん', W / 2, 72);
+  x.font = '34px "DotGothic16", monospace'; x.fillStyle = '#f4f4f8';
+  if ('letterSpacing' in x) x.letterSpacing = '6px';
+  rows.forEach((r, i) => x.fillText(groups(r, 4).join('　'), W / 2, top + i * lineH + lineH / 2));
+  c.toBlob((b) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = 'jumon.png'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+}
+
+// じゅもん入力用のキーボード（使う32文字＋もどる・けす）
+(() => {
+  const kbd = $('kbd'), inp = $('read-in');
+  const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; kbd.appendChild(b); };
+  for (const ch of JUMON_KANA) add(ch, () => { inp.value += ch; });
+  add('もどる', () => { inp.value = [...inp.value.replace(/\s+$/, '')].slice(0, -1).join(''); }, 'fn');
+  add('けす', () => { inp.value = ''; $('read-msg').textContent = ''; $('read-result').classList.add('hidden'); }, 'fn');
+})();
+
+for (const [id, fn] of [['make-in', doMake], ['read-in', doRead]]) {
+  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); fn(); } });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const m = location.hash.match(/^#jumon=(.+)$/);
+  let pre = null;
+  if (m) { try { pre = decodeURIComponent(m[1]); } catch (e) {} }
+  if (pre) { switchTab('read'); $('read-in').value = groups(pre, 4).join(' '); doRead(); }
+  else switchTab('make');
+});
+</script>
+</body>
+</html>
