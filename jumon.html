@@ -44,10 +44,11 @@
   .jumon span { white-space: nowrap; }
   .result { padding: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  button, a.btn { position: relative; display: block; font-family: inherit; font-size: 16px; padding: 13px 12px 13px 26px; border: 2px solid #f4f4f8; border-radius: 5px;
+  button, a.btn, label.btn { position: relative; display: block; font-family: inherit; font-size: 16px; padding: 13px 12px 13px 26px; border: 2px solid #f4f4f8; border-radius: 5px;
     background: #0a0b1c; color: #f4f4f8; cursor: pointer; min-height: 50px; text-align: left; letter-spacing: 0.5px; text-decoration: none; }
-  button::before, a.btn::before { content: '▶'; position: absolute; left: 9px; opacity: 0; color: #ffd23b; }
-  button:active, a.btn:active { background: #f4f4f8; color: #0a0b1c; } button:active::before, a.btn:active::before { opacity: 1; color: #0a0b1c; }
+  button::before, a.btn::before, label.btn::before { content: '▶'; position: absolute; left: 9px; opacity: 0; color: #ffd23b; }
+  button:active, a.btn:active, label.btn:active { background: #f4f4f8; color: #0a0b1c; }
+  button:active::before, a.btn:active::before, label.btn:active::before { opacity: 1; color: #0a0b1c; }
   button.primary, a.btn.primary { border-color: #ffd23b; color: #ffd23b; } .wide { grid-column: 1 / -1; }
   .tabs button { text-align: center; padding-left: 12px; } .tabs button::before { display: none; }
   .tabs button.on { border-color: #ffd23b; color: #ffd23b; }
@@ -87,7 +88,10 @@
     <div class="label">じゅもんを いれてください</div>
     <textarea id="read-in" class="jumon-in" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
     <div class="win kbd" id="kbd"></div>
-    <button class="primary" onclick="doRead()">となえる（Ctrl+Enter）</button>
+    <div class="actions">
+      <button class="primary" onclick="doRead()">となえる</button>
+      <label class="btn">がぞうから よむ<input type="file" accept="image/*" id="img-in" hidden></label>
+    </div>
     <div class="msg" id="read-msg"></div>
     <div id="read-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="label">じゅもんの なかみ</div>
@@ -97,7 +101,7 @@
         <a class="btn primary" id="read-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
       </div>
     </div>
-    <div class="info">見まちがえやすい文字（お・り・ら・わ・れ・る・ほ・け・な など）は使っていません。これらを打ってしまっても、似た文字として読みとります。カタカナ・濁点・小さい文字もそのまま受けつけます。</div>
+    <div class="info">見まちがえやすい文字（お・り・ら・わ・れ・る・ほ・け・な など）は使っていません。これらを打ってしまっても、似た文字として読みとります。カタカナ・濁点・小さい文字もそのまま受けつけます。「がぞうから よむ」は、このページの「がぞうで ほぞん」で保存した画像を読みとります。</div>
   </div>
 </div>
 
@@ -212,10 +216,13 @@ async function copyText(s, done) {
   setTimeout(() => { msg.style.color = ''; if (msg.textContent === done) msg.textContent = ''; }, 2000);
 }
 
-async function saveImage() {
+// 画像のじゅもんは 決まったマス目に1文字ずつ置く(画像から読みとるときも同じ位置を見る)
+const IMG = { W: 720, top: 120, lineH: 56, cell: 46, gap: 24, perRow: 12 };
+const cellX = (i) => (IMG.W - (IMG.perRow * IMG.cell + 2 * IMG.gap)) / 2 + i * IMG.cell + Math.floor(i / 4) * IMG.gap;
+async function drawJumonImage(j) {
   try { await document.fonts.load('34px "DotGothic16"'); } catch (e) {}
-  const rows = groups(lastJumon, 12);
-  const W = 720, top = 120, lineH = 56, H = top + rows.length * lineH + 40;
+  const rows = groups(j, IMG.perRow);
+  const W = IMG.W, H = IMG.top + rows.length * IMG.lineH + 40;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d');
   x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
@@ -224,8 +231,53 @@ async function saveImage() {
   x.textAlign = 'center'; x.textBaseline = 'middle';
   x.font = '30px "DotGothic16", monospace'; x.fillStyle = '#ffd23b'; x.fillText('ふっかつのじゅもん', W / 2, 72);
   x.font = '34px "DotGothic16", monospace'; x.fillStyle = '#f4f4f8';
-  if ('letterSpacing' in x) x.letterSpacing = '6px';
-  rows.forEach((r, i) => x.fillText(groups(r, 4).join('　'), W / 2, top + i * lineH + lineH / 2));
+  rows.forEach((r, ri) => [...r].forEach((ch, i) => x.fillText(ch, cellX(i) + IMG.cell / 2, IMG.top + ri * IMG.lineH + IMG.lineH / 2)));
+  return c;
+}
+// 1マスを12×12に区切った明るさで、32文字の見本と くらべる
+function cellFeature(px, w, row, i) {
+  const G = 12, x0 = cellX(i) + 4, y0 = IMG.top + row * IMG.lineH + 9, size = 38, f = new Float32Array(G * G);
+  let ink = 0;
+  for (let gy = 0; gy < G; gy++) for (let gx = 0; gx < G; gx++) {
+    let s = 0, k = 0;
+    for (let yy = Math.floor(y0 + (gy * size) / G); yy < Math.floor(y0 + ((gy + 1) * size) / G); yy++)
+      for (let xx = Math.floor(x0 + (gx * size) / G); xx < Math.floor(x0 + ((gx + 1) * size) / G); xx++) { const p = (yy * w + xx) * 4; s += px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114; k++; }
+    f[gy * G + gx] = s / k;
+    if (s / k > 100) ink++;
+  }
+  const mean = f.reduce((a, b) => a + b, 0) / f.length;
+  let norm = 0;
+  for (let k = 0; k < f.length; k++) { f[k] -= mean; norm += f[k] * f[k]; }
+  norm = Math.sqrt(norm) || 1;
+  for (let k = 0; k < f.length; k++) f[k] /= norm;
+  return { f, ink };
+}
+const pixelsOf = (c) => c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, c.width, c.height).data;
+let jumonTemplates = null;
+async function readJumonImage(img) {
+  if (!jumonTemplates) {
+    const t = await drawJumonImage(JUMON_KANA), px = pixelsOf(t);
+    jumonTemplates = [...JUMON_KANA].map((ch, k) => ({ ch, f: cellFeature(px, t.width, Math.floor(k / IMG.perRow), k % IMG.perRow).f }));
+  }
+  // 横幅720に そろえてから、決まったマス目を読む
+  const H = Math.round((img.height * IMG.W) / img.width), rows = Math.round((H - IMG.top - 40) / IMG.lineH);
+  if (rows < 1 || rows > 20) return '';
+  const c = document.createElement('canvas'); c.width = IMG.W; c.height = H;
+  c.getContext('2d').drawImage(img, 0, 0, IMG.W, H);
+  const px = pixelsOf(c);
+  let out = '';
+  for (let r = 0; r < rows; r++) for (let i = 0; i < IMG.perRow; i++) {
+    const { f, ink } = cellFeature(px, IMG.W, r, i);
+    if (ink < 3) continue;
+    let best = null, bestScore = -Infinity;
+    for (const t of jumonTemplates) { let s = 0; for (let k = 0; k < f.length; k++) s += f[k] * t.f[k]; if (s > bestScore) { bestScore = s; best = t.ch; } }
+    out += best;
+  }
+  return out;
+}
+
+async function saveImage() {
+  const c = await drawJumonImage(lastJumon);
   c.toBlob((b) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(b); a.download = 'jumon.png'; a.click();
@@ -241,6 +293,22 @@ async function saveImage() {
   add('もどる', () => { inp.value = [...inp.value.replace(/\s+$/, '')].slice(0, -1).join(''); }, 'fn');
   add('けす', () => { inp.value = ''; $('read-msg').textContent = ''; $('read-result').classList.add('hidden'); }, 'fn');
 })();
+
+$('img-in').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  $('read-msg').textContent = 'よみとっています…';
+  let j = '';
+  try {
+    const img = new Image(), url = URL.createObjectURL(file);
+    await new Promise((ok, ng) => { img.onload = ok; img.onerror = ng; img.src = url; });
+    URL.revokeObjectURL(url);
+    j = await readJumonImage(img);
+  } catch (err) {}
+  if (!j) { $('read-msg').textContent = 'がぞうから じゅもんを みつけられませんでした'; return; }
+  $('read-in').value = groups(j, 4).join(' ');
+  doRead();
+});
 
 for (const [id, fn] of [['make-in', doMake], ['read-in', doRead]]) {
   $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); fn(); } });
