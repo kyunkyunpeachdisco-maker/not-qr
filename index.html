@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>QRじゃないQR - ことばやURLを じゅもんや メロディに かえる</title>
-<meta name="description" content="URLや短い文章を、ふっかつのじゅもん風のひらがなや、ファミコン風の曲に変えて伝えるツール。QRコードのかわりに。">
+<meta name="description" content="URLや短い文章を、ふっかつのじゅもん風のひらがな・ファミコン風の曲・写真フレームに変えて伝えるツール。QRコードのかわりに。">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta property="og:title" content="QRじゃないQR - ことばやURLを じゅもんや メロディに かえる">
-<meta property="og:description" content="URLや短い文章を、ふっかつのじゅもん風のひらがなや、ファミコン風の曲に変えて伝えるツール。QRコードのかわりに。">
+<meta property="og:description" content="URLや短い文章を、ふっかつのじゅもん風のひらがな・ファミコン風の曲・写真フレームに変えて伝えるツール。QRコードのかわりに。">
 <meta property="og:url" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
@@ -37,7 +37,7 @@
 <body>
 <div id="app">
   <h1>QRじゃないQR</h1>
-  <p class="lead">ことばや URLを、<br>じゅもんや メロディに かえて つたえよう</p>
+  <p class="lead">ことばや URLを、じゅもんや<br>メロディや フレームに かえて つたえよう</p>
   <a class="win item" href="jumon.html">
     <div class="name">ふっかつのじゅもん</div>
     <div class="desc">ひらがなの じゅもんに かえる。見まちがえやすい文字は つかわないので、紙に書いて わたせる。</div>
@@ -46,10 +46,14 @@
     <div class="name">ふっかつのメロディ</div>
     <div class="desc">ファミコン風の きょくに かえる。ならした きょくを マイクで きいて、もとに もどせる。</div>
   </a>
+  <a class="win item" href="frame.html">
+    <div class="name">ふっかつのフレーム</div>
+    <div class="desc">しゃしんの わくに うめこむ。フレームを先に作っておけば、すきな しゃしんや かざり画像と 何度でも くみあわせられる。</div>
+  </a>
   <div class="ver" id="ver"></div>
 </div>
 <script>
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v1.2.0';
 document.getElementById('ver').textContent = APP_VERSION.startsWith('__') ? '開発版' : APP_VERSION;
 </script>
 </body>
