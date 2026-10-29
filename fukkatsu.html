@@ -137,8 +137,10 @@ const isAudio = (f) => f.type.startsWith('audio/') || /\.(wav|mp3|m4a|aac|ogg|we
 async function readFile(file, fromCamera) {
   const url = URL.createObjectURL(file);
   if (file.type.startsWith('video/')) {
-    const v = el('video'); v.src = url; v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.controls = true; v.preload = 'metadata'; v.autoplay = false;
+    const v = el('video'); v.src = url; v.playsInline = true; v.setAttribute('playsinline', ''); v.controls = true; v.preload = 'auto'; v.loop = true;
     addMe(v);
+    // 動画を 流しながら 読みとる。音つきで 流せなければ 音なしで(音は 動画の ボタンで 出せる)
+    v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
     const w = working('フレームを さがしています…');
     let info = null; try { info = await readMedia(file); } catch (e) {}
     if (info) { w.remove(); return addResult('フレーム', info.text); }
