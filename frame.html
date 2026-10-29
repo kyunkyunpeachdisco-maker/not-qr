@@ -29,7 +29,7 @@
   .win { background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; }
   .back { align-self: flex-start; padding: 10px 12px 0; color: #b6b6d8; font-size: 14px; text-decoration: none; }
   h1 { text-align: center; color: #ffd23b; font-size: 24px; letter-spacing: 6px; padding: 2px 8px 6px; text-shadow: 2px 2px 0 #000; font-weight: normal; }
-  .tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 8px; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px; }
   .pane { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 8px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
   .pane > * { flex-shrink: 0; }
   .hidden { display: none !important; }
@@ -40,7 +40,8 @@
     background: #0a0b1c; color: #f4f4f8; border: 2px solid #f4f4f8; border-radius: 5px; }
   .result { padding: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
   /* 透明な窓が わかるように市松模様の上に出す */
-  .preview { display: block; max-width: 100%; max-height: 55dvh; margin: 0 auto; border-radius: 3px;
+  input[type=range] { width: 100%; accent-color: #ffd23b; }
+  .preview { display: block; max-width: 100%; max-height: 55dvh; margin: 0 auto; border-radius: 3px; touch-action: none; cursor: grab;
     background: repeating-conic-gradient(#3a3a4a 0 25%, #24242e 0 50%) 0 0 / 16px 16px; }
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -67,52 +68,39 @@
   <h1>ふっかつのフレーム</h1>
   <div class="tabs">
     <button id="tab-make" onclick="switchTab('make')">つくる</button>
-    <button id="tab-fit" onclick="switchTab('fit')">はめる</button>
     <button id="tab-read" onclick="switchTab('read')">よむ</button>
   </div>
 
   <div class="pane" id="pane-make">
-    <div class="label">つたえたい ことば・URL</div>
-    <textarea id="make-in" rows="3" spellcheck="false" placeholder="例: https://example.com/"></textarea>
-    <div class="label">かたち</div>
-    <div class="choices three" id="shapes"></div>
-    <div class="label">デザイン</div>
-    <div class="choices" id="themes"></div>
-    <div class="label">かざり画像（なくてもOK）</div>
-    <div class="actions">
-      <label class="btn" id="deco-label">えらぶ<input type="file" accept="image/*" id="deco-in" hidden></label>
-      <button onclick="clearDeco()">はずす</button>
+    <div class="label">1. しゃしん・どうがを えらぶ</div>
+    <label class="btn" id="media-label">えらぶ<input type="file" accept="image/*,video/*" id="media-in" hidden></label>
+    <div class="label">2. フレーム</div>
+    <div class="choices" id="frame-modes"></div>
+    <div id="new-frame" style="display:flex;flex-direction:column;gap:10px">
+      <textarea id="make-in" rows="3" spellcheck="false" placeholder="つたえたい ことば・URL（例: https://example.com/）"></textarea>
+      <div class="choices" id="themes"></div>
+      <div class="info hidden" id="video-note">どうがには、圧縮されても 読みとれる QR風の フレームを つかいます。</div>
     </div>
-    <div class="choices three hidden" id="widths"></div>
-    <button class="primary" onclick="doMake()">フレームを つくる</button>
+    <div id="saved-frame" class="hidden" style="display:flex;flex-direction:column;gap:10px">
+      <label class="btn" id="frame-label">フレームを えらぶ<input type="file" accept="image/*" id="frame-in" hidden></label>
+      <div class="info">保存したフレームでも、フレームつきの画像でも えらべます（しゃしん・どうがだけ 入れかわります）。</div>
+    </div>
+    <button class="primary" onclick="doMake()">フレームを つける</button>
     <div class="msg" id="make-msg"></div>
     <div id="make-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
-      <img class="preview" id="make-out" alt="できた フレーム">
+      <canvas class="preview" id="preview"></canvas>
+      <div class="info">しゃしん・どうがは ゆびで うごかせます。大きさは バーで かえられます。</div>
+      <input type="range" id="zoom" min="1" max="4" step="0.01" value="1">
       <div class="actions">
-        <button onclick="saveBlob(frameBlob, 'fukkatsu-frame.png')">フレームを ほぞん</button>
-        <button class="primary" onclick="useFrameNow()">しゃしんを はめる</button>
+        <button class="primary" id="save-btn" onclick="saveResult()">がぞうを ほぞん</button>
+        <button id="save-frame-btn" onclick="saveFrameOnly()">フレームだけ ほぞん</button>
       </div>
-      <div class="info">まんなかの 市松模様のところは 透明です。保存したフレームには、あとから何度でも 写真を はめられます。</div>
-    </div>
-  </div>
-
-  <div class="pane hidden" id="pane-fit">
-    <div class="label">1. フレーム</div>
-    <label class="btn" id="frame-label">フレームを えらぶ<input type="file" accept="image/*" id="frame-in" hidden></label>
-    <div class="info">保存したフレームでも、しゃしんを はめたあとの画像でも えらべます（しゃしんだけ 入れかわります）。</div>
-    <div class="label">2. しゃしん</div>
-    <label class="btn" id="photo-label">しゃしんを えらぶ<input type="file" accept="image/*" id="photo-in" hidden></label>
-    <button class="primary" onclick="doFit()">しゃしんを はめる</button>
-    <div class="msg" id="fit-msg"></div>
-    <div id="fit-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
-      <img class="preview" id="fit-out" alt="しゃしんを はめた画像">
-      <button class="primary" onclick="saveBlob(fitBlob, 'fukkatsu-photo.jpg')">がぞうを ほぞん</button>
-      <div class="info">送るときは、画像を切りとらずに そのまま送ってください。外がわの マス目が欠けると 読みとれません。LINEやXで 小さくなったり 画質が落ちたりするのは だいじょうぶです。</div>
+      <div class="info">送るときは、切りとらずに そのまま送ってください。ふちが欠けると 読みとれません。LINEやXで 小さくなったり 画質が落ちたりするのは だいじょうぶです。</div>
     </div>
   </div>
 
   <div class="pane hidden" id="pane-read">
-    <label class="btn primary">フレームつきの がぞうを えらぶ<input type="file" accept="image/*" id="read-in" hidden></label>
+    <label class="btn primary">フレームつきの がぞう・どうがを えらぶ<input type="file" accept="image/*,video/*" id="read-in" hidden></label>
     <div class="msg" id="read-msg"></div>
     <div id="read-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="label">フレームの なかみ</div>
@@ -122,7 +110,7 @@
         <a class="btn primary" id="read-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
       </div>
     </div>
-    <div class="info">このページで作った フレームや、フレームつきの写真を えらぶと、うめこまれた ことばを 読みとります。スクリーンショットではなく、保存した画像そのものを えらんでください。</div>
+    <div class="info">このページで作った フレームや、フレームつきの しゃしん・どうがを えらぶと、うめこまれた ことばを 読みとります。スクリーンショットではなく、保存したものを そのまま えらんでください。</div>
   </div>
 </div>
 
@@ -217,14 +205,13 @@ async function unpackText(bytes) {
 // 画像全体を マス目に区切り、外がわの帯に データを入れる。
 // 行進(parade): 帯は1マス。1マスに キャラ1匹。キャラ8種 × 跳ねている/地面 = 4ビット。下の段は左向きに歩く
 // 星空(stars): 帯は4マス。2×2マスに 星1つ。4か所のどこに星があるか = 2ビット
-// 帯の内がわに かざり画像、さらに内がわが 写真の窓。窓の位置(inset)も データに入れておく
-const FRAME_SIZE = 1600;
+// QR風(qr): 帯は4マス。外から 濃い1列・データ2列(濃い=1)・うすい1列。動画の圧縮にも強い
+// 帯の内がわが 写真・動画の窓。窓の位置(inset)も データに入れておく
 const KINDS = {
-  parade: { Ls: [24, 32, 40, 48, 56], band: 1, bits: 4 },
-  stars: { Ls: [56, 72, 88, 104, 120], band: 4, bits: 2 },
+  parade: { Ls: [24, 32, 40, 48, 56, 64, 72], band: 1, bits: 4 },
+  stars: { Ls: [56, 72, 88, 104, 120, 136, 152], band: 4, bits: 2 },
+  qr: { Ls: [96, 128, 160], band: 4, bits: 1 },
 };
-const SHAPES = { '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4, '16:9': 16 / 9, '9:16': 9 / 16, '3:2': 3 / 2 };
-const DECO_WIDTHS = { ほそい: 0.06, ふつう: 0.12, ふとい: 0.2 };
 
 const PAL = {
   k: '#1a1a1a', w: '#ffffff', g: '#9e9e9e', G: '#5f5f5f', r: '#e53935', R: '#8e1b1b', p: '#f48fb1', P: '#d81b60',
@@ -280,6 +267,7 @@ const DESIGNS = {
   eto: { kind: 'parade', name: 'えと', bg: '#fbefd5', corner: 'sun' },
   rpg: { kind: 'parade', name: 'モンスター', bg: '#13173a', corner: 'cursor' },
   milkyway: { kind: 'stars', name: '天の川' },
+  qr: { kind: 'qr', name: 'QR風', dark: '#111111', light: '#ffffff' },
 };
 
 function frameGeom(L, aspect) {
@@ -292,6 +280,13 @@ function slotsOf(kind, Wu, Hu) {
     for (let y = 1; y <= Hu - 2; y++) s.push({ x: Wu - 1, y });
     for (let x = Wu - 2; x >= 1; x--) s.push({ x, y: Hu - 1, flip: true });
     for (let y = Hu - 2; y >= 1; y--) s.push({ x: 0, y });
+  } else if (kind === 'qr') {
+    for (const r of [1, 2]) {
+      for (let x = 4; x <= Wu - 5; x++) s.push({ x, y: r });
+      for (let y = 4; y <= Hu - 5; y++) s.push({ x: Wu - 1 - r, y });
+      for (let x = Wu - 5; x >= 4; x--) s.push({ x, y: Hu - 1 - r });
+      for (let y = Hu - 5; y >= 4; y--) s.push({ x: r, y });
+    }
   } else {
     for (const y of [0, 2]) for (let x = 4; x + 2 <= Wu - 4; x += 2) s.push({ x, y });
     for (const x of [Wu - 4, Wu - 2]) for (let y = 4; y + 2 <= Hu - 4; y += 2) s.push({ x, y });
@@ -473,24 +468,53 @@ function classifyStars(px, W, slots, uw, uh) {
   });
 }
 
-async function buildFrame({ text, designKey, aspect, deco, decoWidth }) {
+// --- QR風 ---
+function drawQR(x, Wu, Hu, U, slots, syms) {
+  const d = DESIGNS.qr, W = Wu * U, H = Hu * U;
+  x.fillStyle = d.light; x.fillRect(0, 0, W, H);
+  x.fillStyle = d.dark;
+  x.fillRect(0, 0, W, U); x.fillRect(0, H - U, W, U); x.fillRect(0, 0, U, H); x.fillRect(W - U, 0, U, H);
+  slots.forEach((s, i) => { if (syms[i]) x.fillRect(s.x * U, s.y * U, U, U); });
+  for (const [cx, cy] of [[0, 0], [Wu - 4, 0], [0, Hu - 4], [Wu - 4, Hu - 4]]) {
+    x.fillStyle = d.dark; x.fillRect(cx * U, cy * U, 4 * U, 4 * U);
+    x.fillStyle = d.light; x.fillRect((cx + 1) * U, (cy + 1) * U, 2 * U, 2 * U);
+  }
+}
+function classifyQR(px, W, Wu, Hu, slots, uw, uh) {
+  const lum = (cx, cy) => {
+    const x0 = Math.floor((cx + 0.25) * uw), x1 = Math.max(x0 + 1, Math.floor((cx + 0.75) * uw));
+    const y0 = Math.floor((cy + 0.25) * uh), y1 = Math.max(y0 + 1, Math.floor((cy + 0.75) * uh));
+    let s = 0, k = 0;
+    for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { const p = (yy * W + xx) * 4; s += px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114; k++; }
+    return s / k;
+  };
+  let dark = 0, light = 0, k = 0;
+  for (let cx = 4; cx < Wu - 4; cx += 3) { dark += lum(cx, 0) + lum(cx, Hu - 1); light += lum(cx, 3) + lum(cx, Hu - 4); k += 2; }
+  dark /= k; light /= k;
+  if (light - dark < 40) return null;
+  const thr = (dark + light) / 2;
+  return slots.map((s) => (lum(s.x, s.y) < thr ? 1 : 0));
+}
+
+async function buildFrame({ text, designKey, aspect, size = 1600 }) {
   const d = DESIGNS[designKey], k = KINDS[d.kind];
   const payload = await packText(text);
   for (const L of k.Ls) {
     const { Wu, Hu } = frameGeom(L, aspect);
     const { slots, n, nsym, cap } = frameCode(d.kind, Wu, Hu);
     if (payload.length > cap) continue;
-    const inset = k.band + (deco ? Math.max(1, Math.round(Math.min(Wu, Hu) * decoWidth)) : 0);
+    const inset = k.band;
     const msg = [inset, payload.length, ...payload];
     while (msg.length < n - nsym) msg.push(0);
     const syms = toSymbols(rsEncode(msg, nsym), slots.length, k.bits);
-    const U = Math.max(8, Math.round(FRAME_SIZE / L));
+    const U = Math.max(4, Math.round(size / L));
     const c = document.createElement('canvas'); c.width = Wu * U; c.height = Hu * U;
     const x = c.getContext('2d');
     if (d.kind === 'parade') drawParade(x, designKey, Wu, Hu, U, slots, syms);
+    else if (d.kind === 'qr') drawQR(x, Wu, Hu, U, slots, syms);
     else drawStars(x, Wu, Hu, U, slots, syms);
-    if (deco) drawCover(x, deco, k.band * U, k.band * U, (Wu - 2 * k.band) * U, (Hu - 2 * k.band) * U);
     x.clearRect(inset * U, inset * U, (Wu - 2 * inset) * U, (Hu - 2 * inset) * U);
+    c.frameInfo = { Wu, Hu, inset };
     return c;
   }
   throw new Error('too long');
@@ -528,7 +552,8 @@ async function readFrame(img) {
           const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
           px = x.getImageData(0, 0, W, H).data;
         }
-        const r = await tryDecode(classifyStars(px, W, fc.slots, uw, uh), fc, k.bits, Wu, Hu);
+        const syms = kind === 'qr' ? classifyQR(px, W, Wu, Hu, fc.slots, uw, uh) : classifyStars(px, W, fc.slots, uw, uh);
+        const r = syms && (await tryDecode(syms, fc, k.bits, Wu, Hu));
         if (r) return r;
       }
     }
@@ -536,39 +561,56 @@ async function readFrame(img) {
   return null;
 }
 
-// フレーム(または写真を はめたあとの画像)の窓に、新しい写真を入れる
-async function fitPhoto(frameImg, photo) {
-  const info = await readFrame(frameImg);
-  if (!info) return null;
-  const c = document.createElement('canvas'); c.width = frameImg.width; c.height = frameImg.height;
-  const x = c.getContext('2d');
+// 窓(写真・動画が入るところ)の位置。W×H はフレーム画像の大きさ
+function windowRect(info, W, H) {
+  const uw = W / info.Wu, uh = H / info.Hu, x0 = Math.round(info.inset * uw), y0 = Math.round(info.inset * uh);
+  return { x: x0, y: y0, w: Math.round((info.Wu - info.inset) * uw) - x0, h: Math.round((info.Hu - info.inset) * uh) - y0 };
+}
+// 窓いっぱいに写真・動画を描く。view = { zoom: 1〜, dx, dy }(dx・dy は窓の幅・高さに対する ずらし量)
+function drawMedia(x, media, mw, mh, r, view) {
+  const s = Math.max(r.w / mw, r.h / mh) * view.zoom, dw = mw * s, dh = mh * s;
+  const mx = (dw - r.w) / 2 / r.w, my = (dh - r.h) / 2 / r.h;
+  view.dx = Math.max(-mx, Math.min(mx, view.dx)); view.dy = Math.max(-my, Math.min(my, view.dy));
+  x.save(); x.beginPath(); x.rect(r.x, r.y, r.w, r.h); x.clip();
+  x.drawImage(media, r.x + (r.w - dw) / 2 + view.dx * r.w, r.y + (r.h - dh) / 2 + view.dy * r.h, dw, dh);
+  x.restore();
+}
+// フレーム(透明な窓のフレームでも、写真入りの画像でも)の上から、窓に写真・動画を描く
+function composite(x, frameImg, info, media, mw, mh, view) {
+  x.clearRect(0, 0, frameImg.width, frameImg.height);
   x.drawImage(frameImg, 0, 0);
-  const uw = c.width / info.Wu, uh = c.height / info.Hu;
-  const x0 = Math.round(info.inset * uw), y0 = Math.round(info.inset * uh);
-  const x1 = Math.round((info.Wu - info.inset) * uw), y1 = Math.round((info.Hu - info.inset) * uh);
-  drawCover(x, photo, x0, y0, x1 - x0, y1 - y0);
-  return c;
+  drawMedia(x, media, mw, mh, windowRect(info, frameImg.width, frameImg.height), view);
 }
 </script>
 
 <script>
 const $ = (id) => document.getElementById(id);
 function switchTab(name) {
-  for (const t of ['make', 'fit', 'read']) {
+  for (const t of ['make', 'read']) {
     $('pane-' + t).classList.toggle('hidden', t !== name);
     $('tab-' + t).classList.toggle('on', t === name);
   }
 }
 function loadImage(src) {
   return new Promise((resolve, reject) => {
-    const img = new Image(), url = typeof src === 'string' ? src : URL.createObjectURL(src);
+    const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('load'));
-    img.src = url;
+    img.src = typeof src === 'string' ? src : URL.createObjectURL(src);
   });
+}
+const seekVideo = (v, t) => new Promise((ok) => { v.onseeked = () => ok(); v.currentTime = t; });
+// 動画を読みこんで、t秒の場面を表示できる状態にする
+async function loadVideo(file, t = 0.1) {
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = URL.createObjectURL(file);
+  await new Promise((ok, ng) => { v.onloadeddata = ok; v.onerror = () => ng(new Error('load')); });
+  await seekVideo(v, Math.min(t, v.duration / 2));
+  return v;
 }
 const toBlob = (c, type, q) => new Promise((r) => c.toBlob(r, type, q));
 function choiceGroup(id, entries, initial, onPick) {
+  $(id).replaceChildren();
   for (const [key, html] of entries) {
     const b = document.createElement('button');
     b.dataset.key = key; b.innerHTML = html;
@@ -577,11 +619,23 @@ function choiceGroup(id, entries, initial, onPick) {
     $(id).appendChild(b);
   }
 }
-// スマホは共有シート(写真に保存できる)、PCはダウンロード
+// 保存するファイル名の末尾に日時をつける(例: fukkatsu-frame-20261029-103015.jpg)
+function stampName(base, ext) {
+  const d = new Date(), z = (n) => String(n).padStart(2, '0');
+  return `${base}-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.${ext}`;
+}
+// スマホは共有シート(写真やファイルに保存できる)、PCのChrome・Edgeは「名前を付けて保存」、それ以外はダウンロード
 async function saveBlob(blob, name) {
   const file = new File([blob], name, { type: blob.type });
   if (/iPhone|iPad|Android/.test(navigator.userAgent) && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await window.showSaveFilePicker({ suggestedName: name });
+      const w = await h.createWritable(); await w.write(blob); await w.close();
+      return;
+    } catch (e) { if (e.name === 'AbortError') return; }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
@@ -589,8 +643,9 @@ async function saveBlob(blob, name) {
 }
 
 // ===== つくる =====
-let shape = '1:1', design = 'yokai', deco = null, decoWidth = 'ふつう', frameBlob = null;
-choiceGroup('shapes', Object.entries(SHAPES).map(([k, a]) => [k, `<span class="shape" style="width:${Math.round(18 * Math.min(1, a))}px;height:${Math.round(18 * Math.min(1, 1 / a))}px"></span>${k}`]), shape, (k) => { shape = k; });
+let media = null, isVideo = false, mediaW = 0, mediaH = 0;
+let frameMode = 'new', design = 'yokai', savedFrame = null;
+let frameImg = null, frameInfo = null, view = { zoom: 1, dx: 0, dy: 0 };
 // デザインの見本アイコン
 function designIcon(key) {
   const c = document.createElement('canvas'); c.width = c.height = 48;
@@ -599,65 +654,150 @@ function designIcon(key) {
   else { x.fillStyle = '#0a1030'; x.fillRect(0, 0, 48, 48); drawStar(x, 30, 18, 6, '#fff6c8'); drawStar(x, 14, 34, 4, '#d6e4ff'); }
   return c.toDataURL();
 }
-choiceGroup('themes', Object.entries(DESIGNS).map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" alt="">${d.name}`]), design, (k) => { design = k; });
-choiceGroup('widths', Object.keys(DECO_WIDTHS).map((k) => [k, k]), decoWidth, (k) => { decoWidth = k; });
-$('deco-in').addEventListener('change', async (e) => {
+function updateDesigns() {
+  $('themes').classList.toggle('hidden', isVideo);
+  $('video-note').classList.toggle('hidden', !isVideo);
+  choiceGroup('themes', Object.entries(DESIGNS).filter(([k]) => k !== 'qr').map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" alt="">${d.name}`]), design, (k) => { design = k; });
+}
+updateDesigns();
+choiceGroup('frame-modes', [['new', 'あたらしく つくる'], ['saved', 'ほぞんした フレーム']], frameMode, (k) => {
+  frameMode = k;
+  $('new-frame').classList.toggle('hidden', k !== 'new');
+  $('saved-frame').classList.toggle('hidden', k !== 'saved');
+});
+$('media-in').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
-  try { deco = await loadImage(file); $('deco-label').firstChild.textContent = file.name; $('widths').classList.remove('hidden'); }
-  catch (err) { $('make-msg').textContent = 'かざり画像を ひらけませんでした'; }
-});
-function clearDeco() { deco = null; $('deco-label').firstChild.textContent = 'えらぶ'; $('widths').classList.add('hidden'); }
-async function doMake() {
-  const text = $('make-in').value;
   $('make-msg').textContent = '';
-  if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
-  let c;
-  try { c = await buildFrame({ text, designKey: design, aspect: SHAPES[shape], deco, decoWidth: DECO_WIDTHS[decoWidth] }); }
-  catch (e) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
-  frameBlob = await toBlob(c, 'image/png');
-  $('make-out').src = URL.createObjectURL(frameBlob);
-  $('make-result').classList.remove('hidden');
-}
-
-// ===== はめる =====
-let fitFrame = null, fitPhotoImg = null, fitBlob = null;
-async function useFrameNow() {
-  fitFrame = await loadImage(frameBlob);
-  $('frame-label').firstChild.textContent = 'いま つくった フレーム';
-  switchTab('fit');
-}
+  try {
+    isVideo = file.type.startsWith('video/');
+    media = isVideo ? await loadVideo(file) : await loadImage(file);
+    mediaW = isVideo ? media.videoWidth : media.naturalWidth; mediaH = isVideo ? media.videoHeight : media.naturalHeight;
+    $('media-label').firstChild.textContent = `${isVideo ? 'どうが' : 'しゃしん'}：${file.name}`;
+  } catch (err) { media = null; $('make-msg').textContent = 'ひらけませんでした'; }
+  updateDesigns();
+  $('make-result').classList.add('hidden');
+});
 $('frame-in').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
-  try { fitFrame = await loadImage(file); $('frame-label').firstChild.textContent = file.name; $('fit-msg').textContent = ''; }
-  catch (err) { $('fit-msg').textContent = 'フレームを ひらけませんでした'; }
+  try { savedFrame = await loadImage(file); $('frame-label').firstChild.textContent = file.name; $('make-msg').textContent = ''; }
+  catch (err) { $('make-msg').textContent = 'フレームを ひらけませんでした'; }
 });
-$('photo-in').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; e.target.value = '';
-  if (!file) return;
-  try { fitPhotoImg = await loadImage(file); $('photo-label').firstChild.textContent = file.name; $('fit-msg').textContent = ''; }
-  catch (err) { $('fit-msg').textContent = 'しゃしんを ひらけませんでした'; }
+function render() { composite($('preview').getContext('2d'), frameImg, frameInfo, media, mediaW, mediaH, view); }
+async function doMake() {
+  $('make-msg').textContent = '';
+  if (!media) { $('make-msg').textContent = 'しゃしん・どうがを えらんでください'; return; }
+  if (frameMode === 'new') {
+    const text = $('make-in').value;
+    if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
+    // 写真・動画の縦横比に あわせて フレームを作る
+    try { frameImg = await buildFrame({ text, designKey: isVideo ? 'qr' : design, aspect: mediaW / mediaH, size: isVideo ? 1280 : 1600 }); }
+    catch (err) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
+    frameInfo = frameImg.frameInfo;
+  } else {
+    if (!savedFrame) { $('make-msg').textContent = 'フレームを えらんでください'; return; }
+    const info = await readFrame(savedFrame);
+    if (!info) { $('make-msg').textContent = 'フレームを 読みとれませんでした。このページで作った フレームを えらんでください'; return; }
+    frameImg = savedFrame; frameInfo = info;
+  }
+  view = { zoom: 1, dx: 0, dy: 0 }; $('zoom').value = 1;
+  $('preview').width = frameImg.width; $('preview').height = frameImg.height;
+  render();
+  $('save-btn').textContent = isVideo ? 'どうがを ほぞん' : 'がぞうを ほぞん';
+  $('save-frame-btn').classList.toggle('hidden', frameMode !== 'new');
+  $('make-result').classList.remove('hidden');
+  $('preview').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+// ゆびで写真を動かす・バーやホイールで大きさを変える
+let drag = null;
+$('preview').addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; $('preview').setPointerCapture(e.pointerId); });
+$('preview').addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const c = $('preview'), r = windowRect(frameInfo, c.width, c.height), k = c.width / c.clientWidth;
+  view.dx += ((e.clientX - drag.x) * k) / r.w; view.dy += ((e.clientY - drag.y) * k) / r.h;
+  drag = { x: e.clientX, y: e.clientY };
+  render();
 });
-async function doFit() {
-  $('fit-msg').textContent = '';
-  if (!fitFrame) { $('fit-msg').textContent = 'フレームを えらんでください'; return; }
-  if (!fitPhotoImg) { $('fit-msg').textContent = 'しゃしんを えらんでください'; return; }
-  const c = await fitPhoto(fitFrame, fitPhotoImg);
-  if (!c) { $('fit-msg').textContent = 'フレームを 読みとれませんでした。このページで作った フレームを えらんでください'; return; }
-  fitBlob = await toBlob(c, 'image/jpeg', 0.92);
-  $('fit-out').src = URL.createObjectURL(fitBlob);
-  $('fit-result').classList.remove('hidden');
+$('preview').addEventListener('pointerup', () => { drag = null; });
+$('preview').addEventListener('pointercancel', () => { drag = null; });
+$('zoom').addEventListener('input', () => { view.zoom = Number($('zoom').value); render(); });
+$('preview').addEventListener('wheel', (e) => {
+  e.preventDefault();
+  view.zoom = Math.max(1, Math.min(4, view.zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08))); $('zoom').value = view.zoom; render();
+}, { passive: false });
+
+async function saveResult() {
+  if (isVideo) return saveVideo();
+  const c = document.createElement('canvas'); c.width = frameImg.width; c.height = frameImg.height;
+  composite(c.getContext('2d'), frameImg, frameInfo, media, mediaW, mediaH, view);
+  saveBlob(await toBlob(c, 'image/jpeg', 0.92), stampName('fukkatsu-frame', 'jpg'));
+}
+async function saveFrameOnly() {
+  const c = document.createElement('canvas'); c.width = frameImg.width; c.height = frameImg.height;
+  c.getContext('2d').drawImage(frameImg, 0, 0);
+  saveBlob(await toBlob(c, 'image/png'), stampName('fukkatsu-frame-only', 'png'));
+}
+// 動画: 最初から最後まで再生しながら、フレームと重ねた絵を録画する(音もそのまま)
+let audioRoute = null;
+async function saveVideo() {
+  const v = media, out = document.createElement('canvas'); out.width = frameImg.width; out.height = frameImg.height;
+  const x = out.getContext('2d'), stream = out.captureStream(30);
+  try {
+    if (!audioRoute) { const ac = new AudioContext(), dest = ac.createMediaStreamDestination(); ac.createMediaElementSource(v).connect(dest); audioRoute = { ac, dest }; }
+    await audioRoute.ac.resume();
+    audioRoute.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+  } catch (err) {}
+  const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (!mime) { $('make-msg').textContent = 'このブラウザでは どうがを 作れません'; return; }
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 }), chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((ok) => { rec.onstop = ok; });
+  document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = true; });
+  v.muted = false;
+  await seekVideo(v, 0);
+  let raf = 0;
+  const draw = () => {
+    composite(x, frameImg, frameInfo, v, mediaW, mediaH, view);
+    $('make-msg').style.color = '#b6b6d8';
+    $('make-msg').textContent = `どうがを つくっています… ${Math.round((v.currentTime / v.duration) * 100)}%（画面を とじないでください）`;
+    raf = requestAnimationFrame(draw);
+  };
+  draw();
+  rec.start();
+  const ended = new Promise((ok) => { v.onended = ok; });
+  await v.play();
+  await ended;
+  rec.stop(); cancelAnimationFrame(raf);
+  await stopped;
+  v.muted = true;
+  document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
+  $('make-msg').style.color = ''; $('make-msg').textContent = '';
+  await seekVideo(v, 0.1); render();
+  saveBlob(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-frame', mime.includes('mp4') ? 'mp4' : 'webm'));
 }
 
 // ===== よむ =====
+async function readMedia(file) {
+  if (!file.type.startsWith('video/')) return readFrame(await loadImage(file));
+  // 動画は いくつかの場面を 切りだして ためす
+  const v = await loadVideo(file);
+  for (const t of [0.5, 1.5, v.duration / 2, v.duration * 0.8]) {
+    await seekVideo(v, Math.min(t, v.duration - 0.05));
+    const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    const info = await readFrame(c);
+    if (info) return info;
+  }
+  return null;
+}
 $('read-in').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
   $('read-msg').textContent = 'よみとっています…'; $('read-result').classList.add('hidden');
   let info = null;
-  try { info = await readFrame(await loadImage(file)); } catch (err) {}
-  $('read-msg').textContent = info ? '' : 'よみとれませんでした。外がわの マス目が 切れていないか たしかめてください';
+  try { info = await readMedia(file); } catch (err) {}
+  $('read-msg').textContent = info ? '' : 'よみとれませんでした。ふちが 切れていないか たしかめてください';
   if (!info) return;
   const text = info.text;
   $('read-out').textContent = text;
@@ -670,6 +810,7 @@ $('read-in').addEventListener('change', async (e) => {
   $('read-result').classList.remove('hidden');
 });
 
+$('make-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doMake(); } });
 document.addEventListener('DOMContentLoaded', () => switchTab('make'));
 </script>
 </body>

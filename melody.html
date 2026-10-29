@@ -461,11 +461,30 @@ function wavBlob(buf) {
   for (let i = 0; i < d.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i])) * 32767, true);
   return new Blob([ab], { type: 'audio/wav' });
 }
-async function saveWav() {
+// 保存するファイル名の末尾に日時をつける(例: fukkatsu-frame-20261029-103015.jpg)
+function stampName(base, ext) {
+  const d = new Date(), z = (n) => String(n).padStart(2, '0');
+  return `${base}-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.${ext}`;
+}
+// スマホは共有シート(写真やファイルに保存できる)、PCのChrome・Edgeは「名前を付けて保存」、それ以外はダウンロード
+async function saveBlob(blob, name) {
+  const file = new File([blob], name, { type: blob.type });
+  if (/iPhone|iPad|Android/.test(navigator.userAgent) && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await window.showSaveFilePicker({ suggestedName: name });
+      const w = await h.createWritable(); await w.write(blob); await w.close();
+      return;
+    } catch (e) { if (e.name === 'AbortError') return; }
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(wavBlob(await renderSong(song)));
-  a.download = 'fukkatsu-melody.wav'; a.click();
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+async function saveWav() {
+  saveBlob(wavBlob(await renderSong(song)), stampName('fukkatsu-melody', 'wav'));
 }
 
 // ===== きく =====
