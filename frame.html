@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ふっかつのフレーム - QRじゃないQR</title>
-<meta name="description" content="URLや短い文章を埋めこんだ写真フレームを作るツール。好きな写真や飾り画像と、何度でも組み合わせ直せます。">
+<meta name="description" content="妖怪や干支の行列、天の川で写真を囲むフレームに、URLや短い文章をこっそり埋めこむツール。好きな写真と何度でも組み合わせ直せます。">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta property="og:title" content="ふっかつのフレーム - QRじゃないQR">
-<meta property="og:description" content="URLや短い文章を埋めこんだ写真フレームを作るツール。好きな写真や飾り画像と、何度でも組み合わせ直せます。">
+<meta property="og:description" content="妖怪や干支の行列、天の川で写真を囲むフレームに、URLや短い文章をこっそり埋めこむツール。好きな写真と何度でも組み合わせ直せます。">
 <meta property="og:url" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/frame.html">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
@@ -48,7 +48,7 @@
   .choices button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 6px; min-height: 46px; text-align: center; }
   .choices button::before { display: none; }
   .choices button.on { border-color: #ffd23b; color: #ffd23b; }
-  .swatch { width: 24px; height: 24px; flex: none; border-radius: 3px; }
+  .swatch { width: 28px; height: 28px; flex: none; border-radius: 3px; image-rendering: pixelated; }
   .shape { flex: none; border: 2px solid currentColor; }
   button, a.btn, label.btn { position: relative; display: block; font-family: inherit; font-size: 16px; padding: 13px 12px 13px 26px; border: 2px solid #f4f4f8; border-radius: 5px;
     background: #0a0b1c; color: #f4f4f8; cursor: pointer; min-height: 50px; text-align: left; letter-spacing: 0.5px; text-decoration: none; }
@@ -76,7 +76,7 @@
     <textarea id="make-in" rows="3" spellcheck="false" placeholder="例: https://example.com/"></textarea>
     <div class="label">かたち</div>
     <div class="choices three" id="shapes"></div>
-    <div class="label">わくの いろ</div>
+    <div class="label">デザイン</div>
     <div class="choices" id="themes"></div>
     <div class="label">かざり画像（なくてもOK）</div>
     <div class="actions">
@@ -214,127 +214,323 @@ async function unpackText(bytes) {
 }
 
 // ===== フレームの しくみ =====
-// 画像全体を マス目に区切る(長い辺が96/128/160マス)。外から4マスが データの帯。
-// 1マス目=濃い色、2・3マス目=データ(濃い=1, うすい=0)、4マス目=うすい色。四すみの4×4マスは かざり。
-// その内がわに かざり画像の帯、さらに内がわが 写真の窓。窓の位置(inset)も データに入れておく
-const FRAME_LS = [96, 128, 160];
-const BAND = 4;
+// 画像全体を マス目に区切り、外がわの帯に データを入れる。
+// 行進(parade): 帯は1マス。1マスに キャラ1匹。キャラ8種 × 跳ねている/地面 = 4ビット。下の段は左向きに歩く
+// 星空(stars): 帯は4マス。2×2マスに 星1つ。4か所のどこに星があるか = 2ビット
+// 帯の内がわに かざり画像、さらに内がわが 写真の窓。窓の位置(inset)も データに入れておく
+const FRAME_SIZE = 1600;
+const KINDS = {
+  parade: { Ls: [24, 32, 40, 48, 56], band: 1, bits: 4 },
+  stars: { Ls: [56, 72, 88, 104, 120], band: 4, bits: 2 },
+};
 const SHAPES = { '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4, '16:9': 16 / 9, '9:16': 9 / 16, '3:2': 3 / 2 };
 const DECO_WIDTHS = { ほそい: 0.06, ふつう: 0.12, ふとい: 0.2 };
-const THEMES = {
-  dq: { name: 'ぼうけん', dark: '#0a0b1c', light: '#f4f4f8', accent: '#ffd23b', mark: 'cursor' },
-  birthday: { name: 'たんじょうび', dark: '#c2185b', light: '#fff0f5', accent: '#ffd23b', mark: 'star' },
-  simple: { name: 'シンプル', dark: '#111111', light: '#ffffff', accent: '#ffffff', mark: 'square' },
-  forest: { name: 'もり', dark: '#2e5e3e', light: '#f4f0e0', accent: '#f4f0e0', mark: 'circle' },
+
+const PAL = {
+  k: '#1a1a1a', w: '#ffffff', g: '#9e9e9e', G: '#5f5f5f', r: '#e53935', R: '#8e1b1b', p: '#f48fb1', P: '#d81b60',
+  o: '#fb8c00', y: '#fdd835', Y: '#c79a00', b: '#42a5f5', B: '#1e3a8a', c: '#80deea', n: '#a1887f', N: '#5d4037',
+  e: '#66bb6a', E: '#2e7d32', v: '#ab47bc', s: '#ffcc80',
 };
+// 12×12のドット絵(すべてオリジナル)
+const SPRITES = {
+  yokai: [
+    ['....kkkk....', '..kkvvvvkk..', '.kvvvvvvvvk.', 'kvvwwvvvvvvk', 'kvvwkvvvvvvk', 'kvvvvvvrrvvk', 'kkkkkkkrrkkk', '.....kNk....', '.....kNk....', '.....kNk....', '....kNNk....', '....kkkk....'],
+    ['....kkkk....', '...kNNNNk...', '..kooooook..', '.kRRRRRRRRk.', '.kooowwoook.', '.kooowkoook.', '.kRRRRRRRRk.', '.kookrrkook.', '.kRRRRRRRRk.', '..kooooook..', '...kNNNNk...', '....kkkk....'],
+    ['....kkkk....', '...kssssk...', '..kssssssk..', '..ksswwssk..', '..ksswkssk..', '..kssssssk..', '...kssrsk...', '..kbbbbbbk..', '.kbbbwwbbbk.', '.kbbbbbbbbk.', '..kNk..kNk..', '..kkk..kkk..'],
+    ['...kkkkkk...', '..kcccccck..', '.keeeeeeeek.', '.kewkeewkek.', '.keeeeeeeek.', '.keeyyyyeek.', '..keyyyyek..', '..keeeeeek..', '.keEEEEEEek.', '.keeeeeeeek.', '..kek..kek..', '..kkk..kkk..'],
+    ['.ky......yk.', '.kyk....kyk.', '..krrrrrrk..', '.krrrrrrrrk.', '.krwkrrwkrk.', '.krrrrrrrrk.', '.krkwwwwkrk.', '..krrrrrrk..', '.kyNyNyNyNk.', '.krrrrrrrrk.', '..krk..krk..', '..kkk..kkk..'],
+    ['..k....k....', '.kgk..kgk...', '.kgggggggk.k', '.kgwkgwkgkgk', '.kggggggkgk.', '.kggpggggkk.', '..kgggggk.k.', '..kgggggkkgk', '..kgggggkgk.', '..kgkkgkkk..', '..kk..kk....', '............'],
+    ['kkkkkkkkkkkk', 'kggggggggggk', 'kgGgggggGggk', 'kggggggggggk', 'kgwkggggwkgk', 'kggggggggggk', 'kgggGggggggk', 'kgggggkkgggk', 'kggggggggggk', 'kgggGgggggGk', 'kkkkkkkkkkkk', '..kk....kk..'],
+    ['.....k......', '....kck.....', '...kcck.....', '...kccck....', '..kcbbcck...', '..kcbbbck...', '.kcbwbwbck..', '.kcbbbbbck..', '.kcbbbbbck..', '..kcbbbck...', '...kckck....', '....k.k.....'],
+  ],
+  birthday: [
+    ['..y..y..y...', '..r..b..e...', '..k..k..k...', '.kkkkkkkkkk.', '.kwwpwwpwwk.', '.kppppppppk.', '.kwwwwwwwwk.', '.knnnnnnnnk.', '.kwpwwpwwpk.', '.knnnnnnnnk.', 'kkkkkkkkkkkk', '............'],
+    ['...kkkkk....', '..krrrrrk...', '.krwrrrrrk..', '.krwrrrrrk..', '.krrrrrrrk..', '.krrrrrrrk..', '..krrrrrk...', '...krrrk....', '....kRk.....', '.....k......', '....k.......', '.....k......'],
+    ['...yy..yy...', '....yyyy....', '.kkkkyykkkk.', '.kbbbyybbbk.', '.kyyyyyyyyk.', '.kbbbyybbbk.', '.kbbbyybbbk.', '.kbbbyybbbk.', '.kbbbyybbbk.', '.kkkkkkkkkk.', '............', '............'],
+    ['............', '............', 'y....y....y.', 'yy..yyy..yy.', 'yyy.yyy.yyy.', 'yyyyyyyyyyy.', 'yyryybyyeyy.', 'yyyyyyyyyyy.', 'YYYYYYYYYYY.', '............', '............', '............'],
+    ['............', '..kk...kk...', '.kPPk.kPPk..', 'kPwPPkPPPPk.', 'kPPPPPPPPPk.', 'kPPPPPPPPPk.', '.kPPPPPPPk..', '..kPPPPPk...', '...kPPPk....', '....kPk.....', '.....k......', '............'],
+    ['.....k......', '....kyk.....', '....kyk.....', 'kkkkyyykkkk.', '.kyyyyyyyk..', '..kyyyyyk...', '..kyyyyyk...', '.kyyykyyyk..', '.kyyk.kyyk..', 'kyk.....kyk.', 'kk.......kk.', '............'],
+    ['.....r......', '....kkk.....', '..kwwwwwk...', '.kwpwwwpwk..', 'kwwwwpwwwwk.', 'kkkkkkkkkkk.', '.konononok..', '.konononok..', '..konononk..', '..kkkkkkk...', '............', '............'],
+    ['y...b...p...', '..r...e.....', 'y...p....b..', '....kk..r...', '...kyyk.....', '..kyrryk....', '..kyyyyk....', '.kryyyyrk...', '.kyyryyyk...', 'kyyyyryyk...', 'kkkkkkkkk...', '............'],
+  ],
+  eto: [
+    ['............', '..kk..kk....', '.kgpk.kgpk..', '.kggggggk...', 'kgwkggggk...', 'kgggggggk...', 'kpkggggggk..', '.kkggggggkk.', '..kggggggk.k', '..kkkkkkk..k', '..........k.', '............'],
+    ['k........k..', 'kk......kk..', '.kkkkkkkk...', 'kwwwwwwwwk..', 'kwkwwwwkwk..', 'kwwwwwwwwk..', '.kppppppk...', '.kpkppkpk...', '..kkkkkk....', '..kwk.kwk...', '..kk...kk...', '............'],
+    ['.kk....kk...', '.kok..kok...', '.koookoook..', '.kokoooook..', 'kowkoowkok..', 'koooooooook.', 'kokwwwwwok..', 'kooowkwoook.', '.kokooooko..', '..kkkkkkk...', '............', '............'],
+    ['..kk..kk....', '..kwk.kwk...', '..kpk.kpk...', '..kwk.kwk...', '.kwwwwwwk...', 'kwwkwwkwwk..', 'kwwwwwwwwk..', 'kwwwpwwwwk..', '.kwwwwwwk...', '..kkkkkk....', '............', '............'],
+    ['......kkk...', '.....keeek..', '.....kekek..', '......keek..', '.....keek.r.', '..kkkeek....', '.keeeeek....', 'keeEEEEeek..', 'keEeeeeEek..', 'keeEEEEeek..', '.keeeeeek...', '..kkkkkk....'],
+    ['......kk....', '.....kNNk...', '....knnNk...', '...knnnnk...', '..knwknnNk..', '.knnnnnnNk..', 'knnnknnnNk..', 'kkkk.knnNk..', '.....knnnNk.', '....knnnnnk.', '....kkkkkkk.', '............'],
+    ['............', '..kwkwkwk...', '.kwwwwwwwk..', 'kwwwwwwwwwk.', 'kwwGGGGwwwk.', 'kwGwGGwGwwk.', 'kwwGGGGwwwk.', 'kwwwGGwwwwk.', '.kwwwwwwwk..', '..kGk.kGk...', '..kkk.kkk...', '............'],
+    ['............', '..kk........', '.kNNkkkkkk..', '.kNNNNNNNNk.', 'kNwkNNNNNNNk', 'kNNNNNNNNNNk', 'kpkNNNNNNNNk', 'kwwNNNNNNNk.', '.kkNNNNNNk..', '..kNk..kNk..', '..kkk..kkk..', '............'],
+  ],
+  rpg: [
+    ['............', '............', '...kkkkkk...', '..kbbbbbbk..', '.kbwbbbbbbk.', '.kbbbbbbbbk.', 'kbbwkbbwkbbk', 'kbbbbbbbbbbk', 'kbbbrrrbbbbk', 'kbbbbbbbbbbk', '.kkkkkkkkkk.', '............'],
+    ['............', 'k..........k', 'kk..k..k..kk', 'kvk.kvvk.kvk', 'kvvkvvvvkvvk', 'kvvvvwvwvvvk', 'kvvvvvvvvvvk', '.kvvkvvkvvk.', '..kk.kk.kk..', '............', '............', '............'],
+    ['...kkkkk....', '..kwwwwwk...', '.kwwwwwwwk..', '.kwkwwkwwk..', '.kwwwwwwwk..', '.kwwwpwwwk..', '.kwwwwwwwk..', '.kwwwwwwwk..', '.kwkwkwkwk..', '.kk.k.k.kk..', '............', '............'],
+    ['..kkkkkkk...', '.kwwwwwwwk..', 'kwwwwwwwwwk.', 'kwkkwwwkkwk.', 'kwkkwwwkkwk.', 'kwwwwkwwwwk.', '.kwwwwwwwk..', '..kwkwkwk...', '..kwwwwwk...', '...kkkkk....', '............', '............'],
+    ['...kkkkkk...', '..krrwrrrk..', '.krwwrrrwrk.', 'krrrrrrwwrrk', 'krwrrrrrrrrk', 'kkkkkkkkkkkk', '..kswkkwsk..', '..kssssssk..', '..kssssssk..', '...kkkkkk...', '............', '............'],
+    ['...k.k......', '..keke......', '.keeeek.....', 'keweekeek...', 'keeeeeeeek..', 'kyyyeeeeek..', '.kkkkeeeeekk', '....keyyeek.', '...keyyyek..', '...keekeek..', '...kk.kk....', '............'],
+    ['............', '.kkkkkkkkkk.', 'kNnnnYYnnnNk', 'knnnnYYnnnnk', 'kwkwkwkwkwkk', 'krrrrrrrrrrk', 'kwkwkwkwkwkk', 'knnnnnnnnnnk', 'kNnnnnnnnnNk', 'kkkkkkkkkkkk', '............', '............'],
+    ['.....kE.....', '....kEk.....', '..kkkkkkkk..', '.kooookoook.', 'kookyookyook', 'koooooooooo.', 'kokyyyyyyok.', 'koookookook.', '.kooookoook.', '..kkkkkkkk..', '............', '............'],
+  ],
+};
+const DESIGNS = {
+  yokai: { kind: 'parade', name: '百鬼夜行', bg: '#211c44', corner: 'moon' },
+  birthday: { kind: 'parade', name: 'たんじょうび', bg: '#ffe4ef', corner: 'star' },
+  eto: { kind: 'parade', name: 'えと', bg: '#fbefd5', corner: 'sun' },
+  rpg: { kind: 'parade', name: 'モンスター', bg: '#13173a', corner: 'cursor' },
+  milkyway: { kind: 'stars', name: '天の川' },
+};
+
 function frameGeom(L, aspect) {
-  return aspect >= 1 ? { Wm: L, Hm: Math.round(L / aspect) } : { Wm: Math.round(L * aspect), Hm: L };
+  return aspect >= 1 ? { Wu: L, Hu: Math.round(L / aspect) } : { Wu: Math.round(L * aspect), Hu: L };
 }
-function dataCells(Wm, Hm) {
-  const cells = [];
-  for (const r of [1, 2]) {
-    for (let x = BAND; x <= Wm - 1 - BAND; x++) cells.push([x, r]);
-    for (let y = BAND; y <= Hm - 1 - BAND; y++) cells.push([Wm - 1 - r, y]);
-    for (let x = Wm - 1 - BAND; x >= BAND; x--) cells.push([x, Hm - 1 - r]);
-    for (let y = Hm - 1 - BAND; y >= BAND; y--) cells.push([r, y]);
+function slotsOf(kind, Wu, Hu) {
+  const s = [];
+  if (kind === 'parade') {
+    for (let x = 1; x <= Wu - 2; x++) s.push({ x, y: 0 });
+    for (let y = 1; y <= Hu - 2; y++) s.push({ x: Wu - 1, y });
+    for (let x = Wu - 2; x >= 1; x--) s.push({ x, y: Hu - 1, flip: true });
+    for (let y = Hu - 2; y >= 1; y--) s.push({ x: 0, y });
+  } else {
+    for (const y of [0, 2]) for (let x = 4; x + 2 <= Wu - 4; x += 2) s.push({ x, y });
+    for (const x of [Wu - 4, Wu - 2]) for (let y = 4; y + 2 <= Hu - 4; y += 2) s.push({ x, y });
+    for (const y of [Hu - 4, Hu - 2]) for (let x = 4; x + 2 <= Wu - 4; x += 2) s.push({ x, y });
+    for (const x of [0, 2]) for (let y = 4; y + 2 <= Hu - 4; y += 2) s.push({ x, y });
   }
-  return cells;
+  return s;
 }
 // 中身は [窓の位置, ことばの長さ, ことば…, 0埋め] をリード・ソロモン符号にしたもの
-function frameCode(Wm, Hm) {
-  const cells = dataCells(Wm, Hm), n = Math.min(255, Math.floor(cells.length / 8)), nsym = Math.max(8, Math.ceil(n / 4));
-  return { cells, n, nsym, cap: n - nsym - 2 };
+function frameCode(kind, Wu, Hu) {
+  const slots = slotsOf(kind, Wu, Hu), n = Math.min(255, Math.floor((slots.length * KINDS[kind].bits) / 8)), nsym = Math.max(8, Math.ceil(n / 4));
+  return { slots, n, nsym, cap: n - nsym - 2 };
 }
-// 濃淡が かたよらないよう、データに決まった模様を かさねる
-const maskBit = (i) => ((Math.imul(i + 1, 2654435761) >>> 13) & 1);
+// 同じキャラばかり並ばないよう、データに決まった模様を かさねる
+const maskVal = (i) => Math.imul(i + 1, 2654435761) >>> 13;
+function toSymbols(code, count, b) {
+  const out = [];
+  for (let i = 0, bp = 0; i < count; i++) {
+    let v = 0;
+    for (let j = 0; j < b; j++, bp++) v = v * 2 + (bp < code.length * 8 ? (code[bp >> 3] >> (7 - (bp & 7))) & 1 : 0);
+    out.push(v ^ (maskVal(i) & ((1 << b) - 1)));
+  }
+  return out;
+}
+function fromSymbols(syms, n, b) {
+  const code = new Array(n).fill(0);
+  syms.forEach((s, i) => {
+    const v = s ^ (maskVal(i) & ((1 << b) - 1));
+    for (let j = 0; j < b; j++) { const bp = i * b + j; if (bp < n * 8) code[bp >> 3] |= ((v >> (b - 1 - j)) & 1) << (7 - (bp & 7)); }
+  });
+  return code;
+}
 // 画像をrectいっぱいに(はみ出したぶんは中央を残して切る)
 function drawCover(x, img, dx, dy, dw, dh) {
   const s = Math.max(dw / img.width, dh / img.height), sw = dw / s, sh = dh / s;
   x.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, dx, dy, dw, dh);
 }
 
-async function buildFrame({ text, themeKey, aspect, deco, decoWidth }) {
-  const th = THEMES[themeKey];
+// --- 行進 ---
+function drawTile(x, designKey, sym, flip, ox, oy, P) {
+  const sp = SPRITES[designKey][sym >> 1], hop = sym & 1;
+  const ps = (P * 0.72) / 12, sx = ox + (P - 12 * ps) / 2, sy = oy + (P - 12 * ps) / 2 + (hop ? -0.1 : 0.08) * P;
+  x.fillStyle = 'rgba(0,0,0,0.22)';
+  x.beginPath(); x.ellipse(ox + P / 2, oy + P * 0.93, P * (hop ? 0.2 : 0.3), P * 0.05, 0, 0, Math.PI * 2); x.fill();
+  for (let r = 0; r < 12; r++) for (let c = 0; c < 12; c++) {
+    const col = PAL[sp[r][flip ? 11 - c : c]];
+    if (!col) continue;
+    const x0 = Math.round(sx + c * ps), x1 = Math.round(sx + (c + 1) * ps), y0 = Math.round(sy + r * ps), y1 = Math.round(sy + (r + 1) * ps);
+    x.fillStyle = col; x.fillRect(x0, y0, x1 - x0, y1 - y0);
+  }
+}
+function drawCornerIcon(x, type, ox, oy, s) {
+  const cx = ox + s / 2, cy = oy + s / 2, r = s * 0.32;
+  x.beginPath();
+  if (type === 'moon') {
+    x.fillStyle = '#fdd835'; x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+    x.beginPath(); x.fillStyle = '#211c44'; x.arc(cx + r * 0.45, cy - r * 0.3, r * 0.85, 0, Math.PI * 2); x.fill();
+  } else if (type === 'star') {
+    x.fillStyle = '#ff7043';
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r; x.lineTo(cx + rr * Math.cos(a), cy + rr * Math.sin(a)); }
+    x.fill();
+  } else if (type === 'sun') {
+    x.fillStyle = '#d32f2f'; x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+  } else {
+    x.fillStyle = '#ffd23b'; x.moveTo(cx - r * 0.7, cy - r); x.lineTo(cx + r, cy); x.lineTo(cx - r * 0.7, cy + r); x.fill();
+  }
+}
+function drawParade(x, designKey, Wu, Hu, U, slots, syms) {
+  const d = DESIGNS[designKey];
+  x.fillStyle = d.bg; x.fillRect(0, 0, Wu * U, Hu * U);
+  slots.forEach((s, i) => drawTile(x, designKey, syms[i], s.flip, s.x * U, s.y * U, U));
+  for (const [cx, cy] of [[0, 0], [Wu - 1, 0], [0, Hu - 1], [Wu - 1, Hu - 1]]) drawCornerIcon(x, d.corner, cx * U, cy * U, U);
+}
+// 1マスを24×24に縮めた色の並びで、見本とくらべる
+const TILE_PX = 24;
+function tileFeatures(data, count) {
+  const len = TILE_PX * TILE_PX * 3, out = [];
+  for (let t = 0; t < count; t++) {
+    const f = new Float32Array(len);
+    let mean = 0;
+    for (let i = 0; i < TILE_PX * TILE_PX; i++) for (let ch = 0; ch < 3; ch++) { const v = data[(t * TILE_PX * TILE_PX + i) * 4 + ch]; f[i * 3 + ch] = v; mean += v; }
+    mean /= len;
+    let norm = 0;
+    for (let i = 0; i < len; i++) { f[i] -= mean; norm += f[i] * f[i]; }
+    norm = Math.sqrt(norm) || 1;
+    for (let i = 0; i < len; i++) f[i] /= norm;
+    out.push(f);
+  }
+  return out;
+}
+const templateCache = {};
+function paradeTemplates(designKey) {
+  if (templateCache[designKey]) return templateCache[designKey];
+  const P = 96, big = document.createElement('canvas'); big.width = P; big.height = P;
+  const bx = big.getContext('2d');
+  const atlas = document.createElement('canvas'); atlas.width = TILE_PX; atlas.height = TILE_PX * 32;
+  const ax = atlas.getContext('2d', { willReadFrequently: true });
+  for (let flip = 0; flip < 2; flip++) for (let sym = 0; sym < 16; sym++) {
+    bx.fillStyle = DESIGNS[designKey].bg; bx.fillRect(0, 0, P, P);
+    drawTile(bx, designKey, sym, !!flip, 0, 0, P);
+    ax.drawImage(big, 0, 0, P, P, 0, (flip * 16 + sym) * TILE_PX, TILE_PX, TILE_PX);
+  }
+  const f = tileFeatures(ax.getImageData(0, 0, TILE_PX, TILE_PX * 32).data, 32);
+  return (templateCache[designKey] = [f.slice(0, 16), f.slice(16)]);
+}
+function paradeTileFeatures(img, slots, uw, uh) {
+  const atlas = document.createElement('canvas'); atlas.width = TILE_PX; atlas.height = TILE_PX * slots.length;
+  const ax = atlas.getContext('2d', { willReadFrequently: true });
+  ax.imageSmoothingQuality = 'high';
+  slots.forEach((s, i) => ax.drawImage(img, s.x * uw, s.y * uh, uw, uh, 0, i * TILE_PX, TILE_PX, TILE_PX));
+  return tileFeatures(ax.getImageData(0, 0, TILE_PX, TILE_PX * slots.length).data, slots.length);
+}
+function classifyParade(feats, slots, designKey) {
+  const tpl = paradeTemplates(designKey);
+  return feats.map((f, i) => {
+    const set = tpl[slots[i].flip ? 1 : 0];
+    let best = 0, bestScore = -Infinity;
+    for (let s = 0; s < 16; s++) { let sc = 0; const t = set[s]; for (let k = 0; k < f.length; k++) sc += f[k] * t[k]; if (sc > bestScore) { bestScore = sc; best = s; } }
+    return best;
+  });
+}
+
+// --- 星空 ---
+function drawStar(x, cx, cy, r, col) {
+  const g = x.createRadialGradient(cx, cy, 0, cx, cy, r * 2);
+  g.addColorStop(0, col); g.addColorStop(0.25, col); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.beginPath(); x.arc(cx, cy, r * 2, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#ffffff'; x.beginPath(); x.arc(cx, cy, r * 0.5, 0, Math.PI * 2); x.fill();
+  if (Math.random() < 0.35) {
+    x.strokeStyle = 'rgba(255,255,255,0.8)'; x.lineWidth = Math.max(1, r * 0.12);
+    x.beginPath(); x.moveTo(cx - r * 1.6, cy); x.lineTo(cx + r * 1.6, cy); x.moveTo(cx, cy - r * 1.6); x.lineTo(cx, cy + r * 1.6); x.stroke();
+  }
+}
+function drawStars(x, Wu, Hu, U, slots, syms) {
+  const W = Wu * U, H = Hu * U, band = KINDS.stars.band * U;
+  const sky = x.createLinearGradient(0, 0, W, H);
+  sky.addColorStop(0, '#060b26'); sky.addColorStop(0.5, '#141d4d'); sky.addColorStop(1, '#060b26');
+  x.fillStyle = sky; x.fillRect(0, 0, W, H);
+  const inBand = () => { for (;;) { const px = Math.random() * W, py = Math.random() * H; if (px < band || py < band || px > W - band || py > H - band) return [px, py]; } };
+  // 天の川の もや と、かすかな星(データではない)
+  for (let i = 0; i < (Wu + Hu) * 1.5; i++) {
+    const [px, py] = inBand(), g = x.createRadialGradient(px, py, 0, px, py, U * 2.5);
+    g.addColorStop(0, 'rgba(150,170,255,0.07)'); g.addColorStop(1, 'rgba(150,170,255,0)');
+    x.fillStyle = g; x.fillRect(px - U * 2.5, py - U * 2.5, U * 5, U * 5);
+  }
+  for (let i = 0; i < (Wu + Hu) * 6; i++) {
+    const [px, py] = inBand();
+    x.fillStyle = `rgba(255,255,255,${0.2 + Math.random() * 0.25})`; x.beginPath(); x.arc(px, py, U * (0.04 + Math.random() * 0.05), 0, Math.PI * 2); x.fill();
+  }
+  const cols = ['#ffffff', '#fff6c8', '#d6e4ff', '#ffe0f0'];
+  slots.forEach((s, i) => {
+    const j = () => (Math.random() - 0.5) * 0.16;
+    drawStar(x, (s.x + (syms[i] & 1) + 0.5 + j()) * U, (s.y + (syms[i] >> 1) + 0.5 + j()) * U, U * (0.24 + Math.random() * 0.12), cols[Math.floor(Math.random() * cols.length)]);
+  });
+  // すみの かざり: 月・大きな星・流れ星
+  const c = 2 * U;
+  x.fillStyle = '#fff3b0'; x.beginPath(); x.arc(c, c, U * 1.3, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#0a1030'; x.beginPath(); x.arc(c + U * 0.6, c - U * 0.4, U * 1.15, 0, Math.PI * 2); x.fill();
+  drawStar(x, W - c, c, U * 0.6, '#fff6c8'); drawStar(x, c, H - c, U * 0.6, '#d6e4ff');
+  const tail = x.createLinearGradient(W - c - U * 1.6, H - c - U * 1.2, W - c + U * 0.8, H - c + U * 0.6);
+  tail.addColorStop(0, 'rgba(255,255,255,0)'); tail.addColorStop(1, 'rgba(255,255,255,0.9)');
+  x.strokeStyle = tail; x.lineWidth = U * 0.18; x.lineCap = 'round';
+  x.beginPath(); x.moveTo(W - c - U * 1.6, H - c - U * 1.2); x.lineTo(W - c + U * 0.8, H - c + U * 0.6); x.stroke();
+  drawStar(x, W - c + U * 0.8, H - c + U * 0.6, U * 0.35, '#ffffff');
+}
+// 2×2マスのうち いちばん明るいマスが 星の位置
+function classifyStars(px, W, slots, uw, uh) {
+  const lum = (cx, cy) => {
+    const x0 = Math.floor((cx + 0.35) * uw), x1 = Math.max(x0 + 1, Math.floor((cx + 0.65) * uw));
+    const y0 = Math.floor((cy + 0.35) * uh), y1 = Math.max(y0 + 1, Math.floor((cy + 0.65) * uh));
+    let s = 0, k = 0;
+    for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { const p = (yy * W + xx) * 4; s += px[p] + px[p + 1] + px[p + 2]; k++; }
+    return s / k;
+  };
+  return slots.map((s) => {
+    let best = 0, bestV = -1;
+    for (let q = 0; q < 4; q++) { const v = lum(s.x + (q & 1), s.y + (q >> 1)); if (v > bestV) { bestV = v; best = q; } }
+    return best;
+  });
+}
+
+async function buildFrame({ text, designKey, aspect, deco, decoWidth }) {
+  const d = DESIGNS[designKey], k = KINDS[d.kind];
   const payload = await packText(text);
-  for (const L of FRAME_LS) {
-    const { Wm, Hm } = frameGeom(L, aspect);
-    const { cells, n, nsym, cap } = frameCode(Wm, Hm);
+  for (const L of k.Ls) {
+    const { Wu, Hu } = frameGeom(L, aspect);
+    const { slots, n, nsym, cap } = frameCode(d.kind, Wu, Hu);
     if (payload.length > cap) continue;
-    const inset = BAND + (deco ? Math.max(1, Math.round(Math.min(Wm, Hm) * decoWidth)) : 0);
+    const inset = k.band + (deco ? Math.max(1, Math.round(Math.min(Wu, Hu) * decoWidth)) : 0);
     const msg = [inset, payload.length, ...payload];
     while (msg.length < n - nsym) msg.push(0);
-    const code = rsEncode(msg, nsym);
-    const M = Math.max(4, Math.round(1440 / L));
-    const c = document.createElement('canvas'); c.width = Wm * M; c.height = Hm * M;
+    const syms = toSymbols(rsEncode(msg, nsym), slots.length, k.bits);
+    const U = Math.max(8, Math.round(FRAME_SIZE / L));
+    const c = document.createElement('canvas'); c.width = Wu * U; c.height = Hu * U;
     const x = c.getContext('2d');
-    x.fillStyle = th.light; x.fillRect(0, 0, c.width, c.height);
-    x.fillStyle = th.dark;
-    x.fillRect(0, 0, c.width, M); x.fillRect(0, c.height - M, c.width, M); x.fillRect(0, 0, M, c.height); x.fillRect(c.width - M, 0, M, c.height);
-    cells.forEach(([cx, cy], i) => {
-      const bit = i < n * 8 ? (code[i >> 3] >> (7 - (i & 7))) & 1 : 0;
-      if (bit ^ maskBit(i)) x.fillRect(cx * M, cy * M, M, M);
-    });
-    for (const [cx, cy] of [[0, 0], [Wm - BAND, 0], [0, Hm - BAND], [Wm - BAND, Hm - BAND]]) drawCorner(x, th, cx * M, cy * M, BAND * M);
-    if (deco) drawCover(x, deco, BAND * M, BAND * M, (Wm - 2 * BAND) * M, (Hm - 2 * BAND) * M);
-    x.clearRect(inset * M, inset * M, (Wm - 2 * inset) * M, (Hm - 2 * inset) * M);
+    if (d.kind === 'parade') drawParade(x, designKey, Wu, Hu, U, slots, syms);
+    else drawStars(x, Wu, Hu, U, slots, syms);
+    if (deco) drawCover(x, deco, k.band * U, k.band * U, (Wu - 2 * k.band) * U, (Hu - 2 * k.band) * U);
+    x.clearRect(inset * U, inset * U, (Wu - 2 * inset) * U, (Hu - 2 * inset) * U);
     return c;
   }
   throw new Error('too long');
 }
-function drawCorner(x, th, ox, oy, s) {
-  x.fillStyle = th.dark; x.fillRect(ox, oy, s, s);
-  const cx = ox + s / 2, cy = oy + s / 2, r = s * 0.3;
-  x.fillStyle = th.accent; x.beginPath();
-  if (th.mark === 'star') {
-    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r; x.lineTo(cx + rr * Math.cos(a), cy + rr * Math.sin(a)); }
-  } else if (th.mark === 'cursor') {
-    x.moveTo(cx - r * 0.7, cy - r); x.lineTo(cx + r, cy); x.lineTo(cx - r * 0.7, cy + r);
-  } else if (th.mark === 'circle') {
-    x.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
-  } else {
-    x.rect(ox + s / 4, oy + s / 4, s / 2, s / 2);
-    x.fill(); x.fillStyle = th.dark; x.beginPath(); x.rect(ox + s * 0.375, oy + s * 0.375, s / 4, s / 4);
-  }
-  x.closePath(); x.fill();
-}
 
-// 読めたら { text, Wm, Hm, inset }、読めなければ null
+// 読めたら { text, Wu, Hu, inset }、読めなければ null
 async function readFrame(img) {
   const W = img.width, H = img.height;
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
-  const x = c.getContext('2d', { willReadFrequently: true });
-  x.drawImage(img, 0, 0);
-  const px = x.getImageData(0, 0, W, H).data;
-  for (const L of FRAME_LS) {
+  let px = null;
+  const tryDecode = async (syms, fc, b, Wu, Hu) => {
+    try {
+      const [inset, len, ...rest] = rsDecode(fromSymbols(syms, fc.n, b), fc.nsym);
+      if (inset < 1 || 2 * inset > Math.min(Wu, Hu) - 2 || len < 1 || len > fc.cap) return null;
+      return { text: await unpackText(rest.slice(0, len)), Wu, Hu, inset };
+    } catch (e) { return null; }
+  };
+  for (const [kind, k] of Object.entries(KINDS)) for (const L of k.Ls) {
     const exact = W >= H ? (L * H) / W : (L * W) / H;
     for (const short of new Set([Math.round(exact), Math.floor(exact), Math.ceil(exact)])) {
-      const Wm = W >= H ? L : short, Hm = W >= H ? short : L;
-      if (Math.min(Wm, Hm) < 2 * BAND + 8) continue;
-      const mw = W / Wm, mh = H / Hm;
-      // マスの まんなか半分の明るさの平均
-      const lum = (cx, cy) => {
-        const x0 = Math.floor((cx + 0.25) * mw), x1 = Math.max(x0 + 1, Math.floor((cx + 0.75) * mw));
-        const y0 = Math.floor((cy + 0.25) * mh), y1 = Math.max(y0 + 1, Math.floor((cy + 0.75) * mh));
-        let s = 0, k = 0;
-        for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { const p = (yy * W + xx) * 4; s += px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114; k++; }
-        return s / k;
-      };
-      let dark = 0, light = 0, k = 0;
-      for (let cx = BAND; cx < Wm - BAND; cx += 3) { dark += lum(cx, 0) + lum(cx, Hm - 1); light += lum(cx, 3) + lum(cx, Hm - 4); k += 2; }
-      dark /= k; light /= k;
-      if (light - dark < 40) continue;
-      const thr = (dark + light) / 2;
-      const { cells, n, nsym, cap } = frameCode(Wm, Hm);
-      const code = new Array(n).fill(0);
-      for (let i = 0; i < n * 8; i++) {
-        const bit = (lum(cells[i][0], cells[i][1]) < thr ? 1 : 0) ^ maskBit(i);
-        code[i >> 3] |= bit << (7 - (i & 7));
+      const Wu = W >= H ? L : short, Hu = W >= H ? short : L;
+      if (Math.min(Wu, Hu) < 2 * k.band + 6) continue;
+      const fc = frameCode(kind, Wu, Hu);
+      if (fc.cap < 1) continue;
+      const uw = W / Wu, uh = H / Hu;
+      if (kind === 'parade') {
+        const feats = paradeTileFeatures(img, fc.slots, uw, uh);
+        for (const [key, d] of Object.entries(DESIGNS)) {
+          if (d.kind !== 'parade') continue;
+          const r = await tryDecode(classifyParade(feats, fc.slots, key), fc, k.bits, Wu, Hu);
+          if (r) return r;
+        }
+      } else {
+        if (!px) {
+          const c = document.createElement('canvas'); c.width = W; c.height = H;
+          const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
+          px = x.getImageData(0, 0, W, H).data;
+        }
+        const r = await tryDecode(classifyStars(px, W, fc.slots, uw, uh), fc, k.bits, Wu, Hu);
+        if (r) return r;
       }
-      try {
-        const [inset, len, ...rest] = rsDecode(code, nsym);
-        if (inset < BAND || 2 * inset > Math.min(Wm, Hm) - 4 || len < 1 || len > cap) continue;
-        return { text: await unpackText(rest.slice(0, len)), Wm, Hm, inset };
-      } catch (e) {}
     }
   }
   return null;
@@ -347,9 +543,9 @@ async function fitPhoto(frameImg, photo) {
   const c = document.createElement('canvas'); c.width = frameImg.width; c.height = frameImg.height;
   const x = c.getContext('2d');
   x.drawImage(frameImg, 0, 0);
-  const mw = c.width / info.Wm, mh = c.height / info.Hm;
-  const x0 = Math.round(info.inset * mw), y0 = Math.round(info.inset * mh);
-  const x1 = Math.round((info.Wm - info.inset) * mw), y1 = Math.round((info.Hm - info.inset) * mh);
+  const uw = c.width / info.Wu, uh = c.height / info.Hu;
+  const x0 = Math.round(info.inset * uw), y0 = Math.round(info.inset * uh);
+  const x1 = Math.round((info.Wu - info.inset) * uw), y1 = Math.round((info.Hu - info.inset) * uh);
   drawCover(x, photo, x0, y0, x1 - x0, y1 - y0);
   return c;
 }
@@ -393,9 +589,17 @@ async function saveBlob(blob, name) {
 }
 
 // ===== つくる =====
-let shape = '1:1', theme = 'dq', deco = null, decoWidth = 'ふつう', frameBlob = null;
+let shape = '1:1', design = 'yokai', deco = null, decoWidth = 'ふつう', frameBlob = null;
 choiceGroup('shapes', Object.entries(SHAPES).map(([k, a]) => [k, `<span class="shape" style="width:${Math.round(18 * Math.min(1, a))}px;height:${Math.round(18 * Math.min(1, 1 / a))}px"></span>${k}`]), shape, (k) => { shape = k; });
-choiceGroup('themes', Object.entries(THEMES).map(([k, th]) => [k, `<span class="swatch" style="background:linear-gradient(135deg, ${th.dark} 50%, ${th.light} 50%);border:2px solid ${th.accent}"></span>${th.name}`]), theme, (k) => { theme = k; });
+// デザインの見本アイコン
+function designIcon(key) {
+  const c = document.createElement('canvas'); c.width = c.height = 48;
+  const x = c.getContext('2d'), d = DESIGNS[key];
+  if (d.kind === 'parade') { x.fillStyle = d.bg; x.fillRect(0, 0, 48, 48); drawTile(x, key, 0, false, 0, 0, 48); }
+  else { x.fillStyle = '#0a1030'; x.fillRect(0, 0, 48, 48); drawStar(x, 30, 18, 6, '#fff6c8'); drawStar(x, 14, 34, 4, '#d6e4ff'); }
+  return c.toDataURL();
+}
+choiceGroup('themes', Object.entries(DESIGNS).map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" alt="">${d.name}`]), design, (k) => { design = k; });
 choiceGroup('widths', Object.keys(DECO_WIDTHS).map((k) => [k, k]), decoWidth, (k) => { decoWidth = k; });
 $('deco-in').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = '';
@@ -409,7 +613,7 @@ async function doMake() {
   $('make-msg').textContent = '';
   if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
   let c;
-  try { c = await buildFrame({ text, themeKey: theme, aspect: SHAPES[shape], deco, decoWidth: DECO_WIDTHS[decoWidth] }); }
+  try { c = await buildFrame({ text, designKey: design, aspect: SHAPES[shape], deco, decoWidth: DECO_WIDTHS[decoWidth] }); }
   catch (e) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
   frameBlob = await toBlob(c, 'image/png');
   $('make-out').src = URL.createObjectURL(frameBlob);
