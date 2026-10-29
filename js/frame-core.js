@@ -61,13 +61,13 @@ const SPRITES = {
 const DESIGNS = {
   chojugiga: { kind: 'emaki', name: '鳥獣戯画', bg: '#f4eedf' },
   hyakki: { kind: 'emaki', name: '百鬼夜行', bg: '#efe5d0' },
-  custom: { kind: 'custom', name: 'じぶんの そざい', bg: '#e4ecf6' },
   yokai: { kind: 'parade', name: 'おばけ', bg: '#211c44', corner: 'moon' },
   birthday: { kind: 'parade', name: 'たんじょうび', bg: '#ffe4ef', corner: 'star' },
   eto: { kind: 'parade', name: 'えと', bg: '#fbefd5', corner: 'sun' },
   rpg: { kind: 'parade', name: 'モンスター', bg: '#13173a', corner: 'cursor' },
   milkyway: { kind: 'stars', name: '天の川' },
   qr: { kind: 'qr', name: 'QR風', dark: '#111111', light: '#ffffff' },
+  custom: { kind: 'custom', name: 'じぶんの そざい', bg: '#e4ecf6' },
 };
 
 function frameGeom(L, aspect) {
@@ -196,7 +196,7 @@ function paradeTileFeatures(img, slots, uw, uh) {
   const atlas = document.createElement('canvas'); atlas.width = TILE_PX; atlas.height = TILE_PX * slots.length;
   const ax = atlas.getContext('2d', { willReadFrequently: true });
   ax.imageSmoothingQuality = 'high';
-  slots.forEach((s, i) => ax.drawImage(img, s.x * uw, s.y * uh, uw, uh, 0, i * TILE_PX, TILE_PX, TILE_PX));
+  slots.forEach((s, i) => drawCrop(ax, img, s.x * uw, s.y * uh, uw, uh, 0, i * TILE_PX, TILE_PX, TILE_PX));
   return tileFeatures(ax.getImageData(0, 0, TILE_PX, TILE_PX * slots.length).data, slots.length);
 }
 function classifyParade(feats, slots, designKey) {
@@ -329,7 +329,7 @@ const validWin = (w) => w.x0 < w.x1 && w.y0 < w.y1 && w.x1 <= WIN_Q && w.y1 <= W
 // 絵1つに1バイト: 種類(8) × 回転(45°ずつ8方向) × 左右反転 × 大小。和紙の帯は 列の数×絵の大きさ で太さが決まり、
 // 入る範囲で いちばん細くなる並べ方を選ぶ
 const EMAKI = {
-  chojugiga: { dir: 'assets/chojugiga/' },
+  chojugiga: { dir: 'assets/chojugiga/', bold: true },
   hyakki: { dir: 'assets/hyakki/' },
 };
 const EMAKI_NX = [12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
@@ -337,10 +337,26 @@ const emakiSprites = {};
 function loadEmaki(key) {
   if (!emakiSprites[key]) {
     emakiSprites[key] = Promise.all(Array.from({ length: 8 }, (_, i) => new Promise((ok, ng) => {
-      const img = new Image(); img.onload = () => ok(img); img.onerror = ng; img.src = `${EMAKI[key].dir}${i + 1}.png`;
+      const img = new Image(); img.onerror = ng; img.src = `${EMAKI[key].dir}${i + 1}.png`;
+      img.onload = () => {
+        if (!EMAKI[key].bold) return ok(img);
+        const c = document.createElement('canvas'), w = Math.max(1, Math.round(img.width * 0.004)) + 1;
+        c.width = img.width + w * 2; c.height = img.height + w * 2;
+        const x = c.getContext('2d');
+        for (let dy = -w; dy <= w; dy++) for (let dx = -w; dx <= w; dx++) if (dx * dx + dy * dy <= w * w) x.drawImage(img, w + dx, w + dy);
+        ok(c);
+      };
     })));
   }
   return emakiSprites[key];
+}
+// 画像の一部を 切りだして描く。Safariは 切りだす範囲が 画像の外に はみ出すと 何も描かないことがあるので、
+// 画像の内がわに おさまる部分だけを 対応する位置に描く
+function drawCrop(x, img, sx, sy, sw, sh, dx, dy, dw, dh) {
+  const iw = img.width, ih = img.height, x0 = Math.max(0, sx), y0 = Math.max(0, sy), x1 = Math.min(iw, sx + sw), y1 = Math.min(ih, sy + sh);
+  if (x1 <= x0 || y1 <= y0) return;
+  const kx = dw / sw, ky = dh / sh;
+  x.drawImage(img, x0, y0, x1 - x0, y1 - y0, dx + (x0 - sx) * kx, dy + (y0 - sy) * ky, (x1 - x0) * kx, (y1 - y0) * ky);
 }
 // 位置のゆらぎ用。ブラウザによって結果が変わらないよう整数だけで計算する
 const hash01 = (a, b, k) => ((Math.imul(a * 73856093 ^ b * 19349663 ^ k * 83492791, 2654435761) >>> 0) % 10007) / 10007;
@@ -478,7 +494,8 @@ function cellFeatures(img, cells, C, s) {
   const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * cells.length;
   const ax = atlas.getContext('2d', { willReadFrequently: true });
   ax.imageSmoothingQuality = 'high';
-  cells.forEach((cell, i) => ax.drawImage(img, (cell.x - C / 2) * s, (cell.y - C / 2) * s, C * s, C * s, 0, i * FEAT, FEAT, FEAT));
+  ax.fillStyle = '#808080'; ax.fillRect(0, 0, FEAT, FEAT * cells.length);
+  cells.forEach((cell, i) => drawCrop(ax, img, (cell.x - C / 2) * s, (cell.y - C / 2) * s, C * s, C * s, 0, i * FEAT, FEAT, FEAT));
   return features(ax.getImageData(0, 0, FEAT, FEAT * cells.length).data, cells.length);
 }
 async function readEmaki(img, hint) {
@@ -613,7 +630,7 @@ async function readCustom(img, hint) {
     if (!probe.L.cells.slice(0, count).every((cell) => ringOk(cell, probe.L.C))) continue;
     const C = Math.round(probe.L.C), keys = probe.L.cells.slice(0, count).map((cell) => {
       const k = document.createElement('canvas'); k.width = C; k.height = C;
-      k.getContext('2d').drawImage(img, cell.x - probe.L.C / 2, cell.y - probe.L.C / 2, probe.L.C, probe.L.C, 0, 0, C, C);
+      drawCrop(k.getContext('2d'), img, cell.x - probe.L.C / 2, cell.y - probe.L.C / 2, probe.L.C, probe.L.C, 0, 0, C, C);
       return k;
     });
     // 見本を 回したり反転したりして 256通りの 照らし合わせ用の絵を作る
