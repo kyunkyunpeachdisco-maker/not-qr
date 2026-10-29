@@ -152,7 +152,11 @@ function stampName(base, ext) {
 async function saveBlob(blob, name) {
   const file = new File([blob], name, { type: blob.type });
   if (/iPhone|iPad|Android/.test(navigator.userAgent) && navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files: [file] }); return; } catch (e) {
+      if (e.name === 'AbortError') return;
+      // 作るのに 時間が かかると、ボタンを押してから 時間が たちすぎて 共有シートを ひらけない(iPhone)。もう一度 押してもらう
+      if (e.name === 'NotAllowedError' && !saveBlob.retrying) return askToSave(blob, name);
+    }
   }
   if (window.showSaveFilePicker) {
     try {
@@ -164,6 +168,20 @@ async function saveBlob(blob, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// 「ほぞんする」ボタンを 画面の下に出し、押されたら 保存する(押した その場でなら 共有シートを ひらける)
+function askToSave(blob, name) {
+  document.getElementById('save-ready')?.remove();
+  const box = document.createElement('div');
+  box.id = 'save-ready';
+  box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:14px 16px calc(14px + env(safe-area-inset-bottom));background:#1b1c2e;border-top:2px solid #ffd23b;display:flex;gap:10px;align-items:center;justify-content:center';
+  const ok = document.createElement('button'), no = document.createElement('button');
+  ok.textContent = '✓ できました。ここを押して ほぞんする'; ok.style.cssText = 'flex:1;max-width:420px;padding:14px;font-size:16px;font-weight:bold;border:0;border-radius:8px;background:#ffd23b;color:#05060d';
+  no.textContent = '×'; no.style.cssText = 'padding:14px 16px;font-size:16px;border:0;border-radius:8px;background:#33354d;color:#fff';
+  ok.onclick = async () => { box.remove(); saveBlob.retrying = true; try { await saveBlob(blob, name); } finally { saveBlob.retrying = false; } };
+  no.onclick = () => box.remove();
+  box.append(ok, no); document.body.append(box);
 }
 
 // コピーして、押したボタンの文字を しばらく「✓ コピーしました」にする(メッセージ欄は スクロールで見えないことがあるため)
