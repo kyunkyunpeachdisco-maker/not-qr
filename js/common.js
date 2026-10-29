@@ -179,3 +179,82 @@ async function copyWithFeedback(btn, s) {
   btn.textContent = ok ? '✓ コピーしました' : 'コピーできませんでした';
   clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = label; }, 1800);
 }
+
+// ===== 動画を 1コマずつ 書きだす(WebCodecs) =====
+// 録画(MediaRecorder)だと iPhoneで 途中から コマが 録られなくなることがあるので、
+// 決まった時刻ごとに 絵を描いて 時刻つきで 書きだす。使えないブラウザでは null を返す(そのときは 録画で作る)
+const scriptsLoaded = {};
+function loadScriptOnce(src) {
+  if (!scriptsLoaded[src]) scriptsLoaded[src] = new Promise((ok, ng) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = ng; document.head.appendChild(s); });
+  return scriptsLoaded[src];
+}
+// canvas: 描く先(幅・高さは偶数)、audio: { sampleRate, channels: [Float32Array…] } か null。
+// コマの作り方は どちらか: draw(t) … t秒の絵を canvas に描く(1/fps 秒ごとに 呼ばれる)
+//                          source(emit) … 自分で canvas に描いて emit(その絵の時刻) を呼ぶ。終わったら 返す(動画の再生に 合わせるとき)
+async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress }) {
+  if (!window.VideoEncoder || !window.VideoFrame || (audio && !window.AudioEncoder)) return null;
+  const W = canvas.width, H = canvas.height;
+  let vconf = null;
+  for (const codec of ['avc1.640033', 'avc1.4d0033', 'avc1.42e033']) {
+    const c = { codec, width: W, height: H, bitrate, framerate: fps };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { vconf = c; break; } } catch (e) {}
+  }
+  if (!vconf) return null;
+  let aconf = null;
+  if (audio) {
+    aconf = { codec: 'mp4a.40.2', sampleRate: audio.sampleRate, numberOfChannels: audio.channels.length, bitrate: 192000 };
+    try { if (!(await AudioEncoder.isConfigSupported(aconf)).supported) return null; } catch (e) { return null; }
+  }
+  try { await loadScriptOnce('https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js'); } catch (e) { return null; }
+  const target = new Mp4Muxer.ArrayBufferTarget();
+  const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: W, height: H }, audio: aconf ? { codec: 'aac', sampleRate: aconf.sampleRate, numberOfChannels: aconf.numberOfChannels } : undefined, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+  let failed = null;
+  const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
+  venc.configure(vconf);
+  let count = 0, lastKey = -Infinity;
+  const emit = (t) => {
+    const frame = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6) });
+    const key = t - lastKey >= 2;  // 2秒ごとに キーフレーム
+    if (key) lastKey = t;
+    venc.encode(frame, { keyFrame: key });
+    frame.close(); count++;
+    if (onProgress) onProgress(Math.min(1, t / duration));
+  };
+  if (source) await source(emit);
+  else {
+    const n = Math.ceil(duration * fps);
+    for (let i = 0; i < n; i++) {
+      await draw(i / fps);
+      emit(i / fps);
+      while (venc.encodeQueueSize > 8 && !failed) await new Promise((ok) => setTimeout(ok, 5));
+      if (failed) throw failed;
+    }
+  }
+  if (failed || !count) throw failed || new Error('no frames');
+  await venc.flush();
+  if (aconf) {
+    const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => { failed = e; } });
+    aenc.configure(aconf);
+    const len = audio.channels[0].length, step = 4096;
+    for (let s = 0; s < len; s += step) {
+      const m = Math.min(step, len - s), data = new Float32Array(m * audio.channels.length);
+      audio.channels.forEach((ch, k) => data.set(ch.subarray(s, s + m), k * m));
+      const ad = new AudioData({ format: 'f32-planar', sampleRate: audio.sampleRate, numberOfFrames: m, numberOfChannels: audio.channels.length, timestamp: Math.round((s / audio.sampleRate) * 1e6), data });
+      aenc.encode(ad); ad.close();
+      while (aenc.encodeQueueSize > 16 && !failed) await new Promise((ok) => setTimeout(ok, 5));
+    }
+    await aenc.flush();
+  }
+  if (failed) throw failed;
+  muxer.finalize();
+  const blob = new Blob([target.buffer], { type: 'video/mp4' });
+  // 書きだした動画の長さが 合っているか たしかめる(おかしければ null にして 録画で作りなおす)
+  const ok = await new Promise((res) => {
+    const v = document.createElement('video'), url = URL.createObjectURL(blob), tm = setTimeout(() => res(true), 4000);
+    v.preload = 'metadata'; v.muted = true;
+    v.onloadedmetadata = () => { clearTimeout(tm); res(!isFinite(v.duration) || Math.abs(v.duration - duration) < 1); URL.revokeObjectURL(url); };
+    v.onerror = () => { clearTimeout(tm); res(false); };
+    v.src = url;
+  });
+  return ok ? blob : null;
+}

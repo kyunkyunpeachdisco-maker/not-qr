@@ -126,7 +126,7 @@ function choiceGroup(id, entries, initial, onPick) {
   }
 }
 // ===== つくる =====
-let media = null, isVideo = false, mediaW = 0, mediaH = 0;
+let media = null, mediaFile = null, isVideo = false, mediaW = 0, mediaH = 0;
 let frameMode = 'new', design = 'chojugiga', savedFrame = null, shape = 'fit';
 // かたち: 写真・動画に あわせるか、フレームを含めた 縦横比を 決めるか(写真は 窓の中で 動かして合わせる)
 const SHAPES = { fit: ['しゃしんに あわせる', 0], '1:1': ['1:1', 1], '4:5': ['4:5', 4 / 5], '3:4': ['3:4', 3 / 4], '9:16': ['9:16', 9 / 16], '16:9': ['16:9', 16 / 9] };
@@ -176,6 +176,7 @@ $('media-in').addEventListener('change', async (e) => {
     isVideo = file.type.startsWith('video/');
     if (isVideo) design = 'qr';  // 動画は QR風を 最初に えらんでおく(ほかのデザインにも かえられる)
     media = isVideo ? await loadVideo(file) : await loadImage(file);
+    mediaFile = file;
     mediaW = isVideo ? media.videoWidth : media.naturalWidth; mediaH = isVideo ? media.videoHeight : media.naturalHeight;
     $('media-label').firstChild.textContent = `${isVideo ? 'どうが' : 'しゃしん'}：${file.name}`;
   } catch (err) { media = null; $('make-msg').textContent = 'ひらけませんでした'; }
@@ -278,7 +279,42 @@ async function saveVideo() {
   // 進み具合は 押したボタンに出す(上のメッセージ欄は スクロールで 見えないことがあるため)
   const btn = $('save-btn'), label = btn.textContent;
   btn.textContent = 'じゅんびちゅう…'; $('video-wait').classList.remove('hidden');
-  const v = media, out = document.createElement('canvas'); out.width = frameImg.width; out.height = frameImg.height;
+  const v = media;
+  document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = true; });
+  // まず 1コマずつ 書きだす: 元の動画を その時刻に 合わせて 1コマずつ 取りだし、フレームを重ねる(音は 元の動画の音)
+  let blob = null;
+  try {
+    let audio = null;
+    try {
+      const ac2 = new AudioContext(), ab = await ac2.decodeAudioData(await mediaFile.arrayBuffer()); ac2.close();
+      audio = { sampleRate: ab.sampleRate, channels: Array.from({ length: Math.min(2, ab.numberOfChannels) }, (_, k) => ab.getChannelData(k)) };
+    } catch (err) { audio = null; }  // 音のない動画
+    const enc = document.createElement('canvas'); enc.width = frameImg.width + (frameImg.width & 1); enc.height = frameImg.height + (frameImg.height & 1);
+    const ex = enc.getContext('2d');
+    blob = await encodeVideoFile({ canvas: enc, duration: v.duration, audio, bitrate: 8000000,
+      // 元の動画を 再生し、画面に コマが出るたびに その本当の時刻で フレームを重ねて 書きだす
+      source: (emit) => new Promise((ok, ng) => {
+        if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return ng(new Error('no rvfc'));
+        let last = -1;
+        const onFrame = (now, meta) => {
+          if (meta.mediaTime > last) { last = meta.mediaTime; composite(ex, frameImg, frameInfo, v, mediaW, mediaH, view); emit(meta.mediaTime); }
+          if (!v.ended) v.requestVideoFrameCallback(onFrame);
+        };
+        v.onended = () => ok();
+        v.muted = true;
+        seekVideo(v, 0).then(() => { v.requestVideoFrameCallback(onFrame); return v.play(); }).catch(ng);
+      }),
+      onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
+  } catch (err) { blob = null; }
+  if (blob) {
+    document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
+    btn.textContent = label; $('video-wait').classList.add('hidden');
+    await seekVideo(v, 0.1); render();
+    saveBlob(blob, stampName('fukkatsu-frame', 'mp4'));
+    return;
+  }
+  // 使えないブラウザでは 再生しながら 録画する
+  const out = document.createElement('canvas'); out.width = frameImg.width; out.height = frameImg.height;
   const x = out.getContext('2d'), stream = out.captureStream(30);
   try {
     if (!audioRoute) { const ac = new AudioContext(), dest = ac.createMediaStreamDestination(); ac.createMediaElementSource(v).connect(dest); audioRoute = { ac, dest }; }
@@ -286,11 +322,10 @@ async function saveVideo() {
     audioRoute.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
   } catch (err) {}
   const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
-  if (!mime) { btn.textContent = label; $('make-msg').textContent = 'このブラウザでは どうがを 作れません'; return; }
+  if (!mime) { btn.textContent = label; document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; }); $('make-msg').textContent = 'このブラウザでは どうがを 作れません'; return; }
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 }), chunks = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const stopped = new Promise((ok) => { rec.onstop = ok; });
-  document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = true; });
   v.muted = false;
   await seekVideo(v, 0);
   let raf = 0;

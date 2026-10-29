@@ -161,19 +161,12 @@ async function saveVideo() {
     // 楽譜が短いときは 紙の部分を 楽譜の高さにして 上下まんなかに置く
     const viewH = Math.min(maxH, vb.height * sc + 40), top = 150 + (maxH - viewH) / 2;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const x = c.getContext('2d'), stream = c.captureStream(30);
-    const buf = await renderSong(song, ac.sampleRate), src = ac.createBufferSource(), dest = ac.createMediaStreamDestination();
-    src.buffer = buf; src.connect(dest);
-    dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
-    const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
-    if (!mime) throw new Error('no recorder');
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }), chunks = [];
-    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    const stopped = new Promise((ok) => { rec.onstop = ok; });
-    let scroll = 0, raf = 0;
-    const startAt = ac.currentTime + 0.2, dur = buf.duration;
-    const draw = () => {
-      const t = ac.currentTime - startAt, slot = Math.floor((t - 0.1) / T), box = boxes[slot];
+    const x = c.getContext('2d');
+    const buf = await renderSong(song, 48000), dur = buf.duration;
+    let scroll = 0;
+    // 曲の t 秒の 画面を描く
+    const drawAt = (t) => {
+      const slot = Math.floor((t - 0.1) / T), box = boxes[slot];
       x.fillStyle = '#05060d'; x.fillRect(0, 0, W, H);
       x.fillStyle = '#ffd23b'; x.font = '56px "DotGothic16", monospace'; x.textAlign = 'center'; x.fillText('ふっかつのメロディ', W / 2, top - 50);
       x.fillStyle = '#f4efdc'; x.fillRect(pad, top, W - pad * 2, viewH);
@@ -186,10 +179,32 @@ async function saveVideo() {
       x.fillStyle = '#23243a'; x.fillRect(pad, H - 90, W - pad * 2, 14);
       x.fillStyle = '#4cd24c'; x.fillRect(pad, H - 90, (W - pad * 2) * Math.max(0, Math.min(1, t / dur)), 14);
       x.fillStyle = '#b6b6d8'; x.font = '30px "DotGothic16", monospace'; x.fillText('ききとると ことばが ふっかつします', W / 2, H - 30);
-      btn.textContent = `どうがを つくっています… ${Math.max(0, Math.min(100, Math.round((t / dur) * 100)))}%`;
-      raf = requestAnimationFrame(draw);
     };
-    draw();
+    // まず 1コマずつ 書きだす。使えないブラウザなら 録画で作る
+    let blob = null;
+    try {
+      blob = await encodeVideoFile({ canvas: c, duration: dur, draw: drawAt, audio: { sampleRate: buf.sampleRate, channels: [buf.getChannelData(0)] }, bitrate: 6000000,
+        onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
+    } catch (e) { blob = null; }
+    if (blob) { saveBlob(blob, stampName('fukkatsu-melody', 'mp4')); return; }
+    scroll = 0;
+    const stream = c.captureStream(30), src = ac.createBufferSource(), dest = ac.createMediaStreamDestination();
+    src.buffer = buf; src.connect(dest);
+    dest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
+    const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+    if (!mime) throw new Error('no recorder');
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }), chunks = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((ok) => { rec.onstop = ok; });
+    let raf = 0;
+    const startAt = ac.currentTime + 0.2;
+    const loop = () => {
+      const t = ac.currentTime - startAt;
+      drawAt(t);
+      btn.textContent = `どうがを つくっています… ${Math.max(0, Math.min(100, Math.round((t / dur) * 100)))}%`;
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
     rec.start();
     src.start(startAt);
     await new Promise((ok) => { src.onended = ok; });
