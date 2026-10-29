@@ -279,8 +279,8 @@ function addAacChunk(muxer, chunk, meta, state) {
   if (!state.sent) {
     const d = desc ? new Uint8Array(desc.buffer || desc) : null;
     state.diag = `${adts ? 'ADTS' : 'raw'} desc${d ? d.length : 'なし'}${d ? ':' + [...d.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('') : ''} ts${chunk.timestamp}`;
-    // 設定(AudioSpecificConfig)が ないか、ADTS のときは 自分で作る
-    if (!d || adts) {
+    // 設定(AudioSpecificConfig)は いつも 自分で作る(Safariは 2バイトの設定ではなく esds の中身を まるごと渡してくるため)
+    {
       const fi = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000].indexOf(state.sampleRate);
       const asc = new Uint8Array([(2 << 3) | (fi >> 1), ((fi & 1) << 7) | (state.channels << 3)]);
       meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: state.sampleRate, numberOfChannels: state.channels, description: asc.buffer } };
