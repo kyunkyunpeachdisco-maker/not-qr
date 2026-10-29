@@ -226,13 +226,60 @@ async function waitQueue(enc, max, what, getFailed) {
     await new Promise((ok) => setTimeout(ok, 5));
   }
 }
+// iPhoneのSafariは 書きだしたコマに 再生に必要な設定(decoderConfig)を つけてこないことがある。
+// そのときは コマの中の SPS・PPS から 自分で作り、mp4 の形(長さ+中身)に 直して 渡す
+function annexbNals(u8) {
+  const out = [];
+  let start = -1;
+  for (let i = 0; i + 3 <= u8.length; ) {
+    if (u8[i] === 0 && u8[i + 1] === 0 && (u8[i + 2] === 1 || (u8[i + 2] === 0 && u8[i + 3] === 1))) {
+      if (start >= 0) out.push(u8.subarray(start, i));
+      i += u8[i + 2] === 1 ? 3 : 4; start = i;
+    } else i++;
+  }
+  if (start >= 0) out.push(u8.subarray(start));
+  return out;
+}
+function addAvcChunk(muxer, chunk, meta, state) {
+  if (meta && meta.decoderConfig) { state.made = true; return muxer.addVideoChunk(chunk, meta); }
+  const raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
+  if (!(raw[0] === 0 && raw[1] === 0 && (raw[2] === 1 || (raw[2] === 0 && raw[3] === 1)))) {
+    if (!state.made) throw new Error('no decoderConfig');
+    return muxer.addVideoChunk(chunk, meta);
+  }
+  const nals = annexbNals(raw), body = nals.filter((n) => ![7, 8, 9].includes(n[0] & 31));
+  let m;
+  if (!state.made) {
+    const sps = nals.find((n) => (n[0] & 31) === 7), pps = nals.find((n) => (n[0] & 31) === 8);
+    if (!sps || !pps) throw new Error('no sps');
+    const d = new Uint8Array(11 + sps.length + pps.length);
+    d.set([1, sps[1], sps[2], sps[3], 0xff, 0xe1, sps.length >> 8, sps.length & 255]); d.set(sps, 8);
+    d.set([1, pps.length >> 8, pps.length & 255], 8 + sps.length); d.set(pps, 11 + sps.length);
+    m = { decoderConfig: { codec: state.codec, codedWidth: state.W, codedHeight: state.H, description: d.buffer } };
+    state.made = true;
+  }
+  const data = new Uint8Array(body.reduce((a, n) => a + 4 + n.length, 0));
+  let o = 0;
+  for (const n of body) { data.set([n.length >>> 24, (n.length >> 16) & 255, (n.length >> 8) & 255, n.length & 255], o); data.set(n, o + 4); o += 4 + n.length; }
+  muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, chunk.duration || 0, m);
+}
+// AAC の設定(AudioSpecificConfig)が ついてこないときは 自分で作る
+function addAacChunk(muxer, chunk, meta, state) {
+  if (!state.sent && !(meta && meta.decoderConfig && meta.decoderConfig.description)) {
+    const fi = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000].indexOf(state.sampleRate);
+    const asc = new Uint8Array([(2 << 3) | (fi >> 1), ((fi & 1) << 7) | (state.channels << 3)]);
+    meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: state.sampleRate, numberOfChannels: state.channels, description: asc.buffer } };
+  }
+  state.sent = true;
+  muxer.addAudioChunk(chunk, meta);
+}
 // onStage(なまえ): いま どの段階か(止まったときに どこで止まったか わかるように)
 async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress, onStage = () => {} }) {
   if (!window.VideoEncoder || !window.VideoFrame || (audio && !window.AudioEncoder)) return null;
   const W = canvas.width, H = canvas.height;
   let vconf = null;
   for (const codec of ['avc1.640033', 'avc1.4d0033', 'avc1.42e033']) {
-    const c = { codec, width: W, height: H, bitrate, framerate: fps };
+    const c = { codec, width: W, height: H, bitrate, framerate: fps, avc: { format: 'avc' } };
     try { if ((await VideoEncoder.isConfigSupported(c)).supported) { vconf = c; break; } } catch (e) {}
   }
   if (!vconf) return null;
@@ -245,7 +292,8 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
   const target = new Mp4Muxer.ArrayBufferTarget();
   const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: W, height: H }, audio: aconf ? { codec: 'aac', sampleRate: aconf.sampleRate, numberOfChannels: aconf.numberOfChannels } : undefined, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
   let failed = null;
-  const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
+  const vstate = { codec: vconf.codec, W, H };
+  const venc = new VideoEncoder({ output: (chunk, meta) => { try { addAvcChunk(muxer, chunk, meta, vstate); } catch (e) { failed = e; } }, error: (e) => { failed = e; } });
   venc.configure(vconf);
   let count = 0, lastKey = -Infinity;
   const emit = (t) => {
@@ -271,7 +319,8 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
   await withTimeout(venc.flush(), 30000, 'video flush');
   if (aconf) {
     onStage('おとを つくっています');
-    const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => { failed = e; } });
+    const astate = { sampleRate: aconf.sampleRate, channels: aconf.numberOfChannels };
+    const aenc = new AudioEncoder({ output: (chunk, meta) => { try { addAacChunk(muxer, chunk, meta, astate); } catch (e) { failed = e; } }, error: (e) => { failed = e; } });
     aenc.configure(aconf);
     const len = audio.channels[0].length, step = 4096;
     for (let s = 0; s < len; s += step) {
