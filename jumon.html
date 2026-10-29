@@ -57,16 +57,14 @@
   .kbd button { padding: 6px 0; min-height: 44px; text-align: center; font-size: 20px; border-width: 1px; }
   .kbd button::before { display: none; }
   .kbd button.fn { grid-column: span 4; font-size: 16px; }
+  .readlink { align-self: flex-end; margin: 0 12px 6px; color: #ffd23b; font-size: 14px; text-decoration: none; }
 </style>
 </head>
 <body>
 <div id="app">
   <a class="back" href="./">◀ もどる</a>
   <h1>ふっかつのじゅもん</h1>
-  <div class="tabs">
-    <button id="tab-make" onclick="switchTab('make')">つくる</button>
-    <button id="tab-read" onclick="switchTab('read')">となえる</button>
-  </div>
+  <a class="readlink" href="fukkatsu.html">よみとるときは ▶ ふっかつ</a>
 
   <div class="pane" id="pane-make">
     <div class="label">つたえたい ことば・URL</div>
@@ -84,112 +82,13 @@
     </div>
   </div>
 
-  <div class="pane hidden" id="pane-read">
-    <div class="label">じゅもんを いれてください</div>
-    <textarea id="read-in" class="jumon-in" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
-    <div class="win kbd" id="kbd"></div>
-    <div class="actions">
-      <button class="primary" onclick="doRead()">となえる</button>
-      <label class="btn">がぞうから よむ<input type="file" accept="image/*" id="img-in" hidden></label>
-    </div>
-    <div class="msg" id="read-msg"></div>
-    <div id="read-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
-      <div class="label">じゅもんの なかみ</div>
-      <div class="win result" id="read-out"></div>
-      <div class="info hidden" id="read-dest" style="font-size:15px"></div>
-      <div class="actions">
-        <button id="read-copy">なかみを コピー</button>
-        <a class="btn primary" id="read-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
-      </div>
-    </div>
-    <div class="info">見まちがえやすい文字（お・り・ら・わ・れ・る・ほ・け・な など）は使っていません。これらを打ってしまっても、似た文字として読みとります。カタカナ・濁点・小さい文字もそのまま受けつけます。「がぞうから よむ」は、このページの「がぞうで ほぞん」で保存した画像を読みとります。</div>
-  </div>
 </div>
 
-<script id="core">
-// 見まちがえやすい組（あ/お、い/り、う/ら、ね/れ/わ、ろ/る、は/ほ/け、た/な、さ/き/ち、ぬ/め など）から1文字ずつだけ残した32文字＝5ビット
-const JUMON_KANA = 'あいうえかきくこしすせたちつてとにねのはひふへまみむもやゆよろん';
-// 使っていない文字を打たれたときの読みかえ
-const JUMON_ALIAS = { 'お': 'あ', 'り': 'い', 'ら': 'う', 'わ': 'ね', 'れ': 'ね', 'る': 'ろ', 'ほ': 'は', 'け': 'は', 'な': 'た',
-  'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'あ', 'っ': 'つ', 'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'ゎ': 'ね' };
-
-// CRC-10 (x^10+x^9+x^5+x^4+x+1)。10ビット以内の連続した誤りは必ず見つかるので、1文字の打ち間違いと隣どうしの入れかわりは必ず弾ける
-function crc10(bits) {
-  let c = 0x3ff;
-  for (const b of bits) { const top = ((c >> 9) & 1) ^ b; c = (c << 1) & 0x3ff; if (top) c ^= 0x233; }
-  return c;
-}
-async function pipeBytes(bytes, stream) {
-  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
-}
-// 先頭2ビット=先頭のhttps://を省いたか・圧縮したか、続けて本文のバイト列、5ビット区切りまで0埋め、最後にCRC-10の2文字
-async function jumonEncode(text) {
-  const https = text.startsWith('https://') ? 1 : 0;
-  const raw = new TextEncoder().encode(https ? text.slice(8) : text);
-  let body = raw, zip = 0;
-  if (typeof CompressionStream === 'function') {
-    try { const z = await pipeBytes(raw, new CompressionStream('deflate-raw')); if (z.length < raw.length) { body = z; zip = 1; } } catch (e) {}
-  }
-  const bits = [https, zip];
-  for (const b of body) for (let i = 7; i >= 0; i--) bits.push((b >> i) & 1);
-  while (bits.length % 5) bits.push(0);
-  const crc = crc10(bits);
-  for (let i = 9; i >= 0; i--) bits.push((crc >> i) & 1);
-  let out = '';
-  for (let i = 0; i < bits.length; i += 5) out += JUMON_KANA[bits.slice(i, i + 5).reduce((v, b) => v * 2 + b, 0)];
-  return out;
-}
-function jumonNormalize(str) {
-  let s = str.normalize('NFKC').replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
-  s = s.normalize('NFD').replace(/[゙゚]/g, '').normalize('NFC').replace(/\s/g, '');
-  let text = '', bad = '';
-  for (const ch of s) {
-    const c = JUMON_KANA.includes(ch) ? ch : JUMON_ALIAS[ch];
-    if (c) text += c; else if (!bad.includes(ch)) bad += ch;
-  }
-  return { text, bad };
-}
-async function jumonDecode(input) {
-  const { text, bad } = jumonNormalize(input);
-  if (bad) return { error: `つかえない もじが あります：${bad}` };
-  if (text.length < 4) return { error: 'じゅもんが みじかすぎます' };
-  const bits = [];
-  for (const ch of text) { const v = JUMON_KANA.indexOf(ch); for (let i = 4; i >= 0; i--) bits.push((v >> i) & 1); }
-  const data = bits.slice(0, -10);
-  if (crc10(data) !== bits.slice(-10).reduce((v, b) => v * 2 + b, 0)) return { error: 'じゅもんが ちがいます' };
-  const n = Math.floor((data.length - 2) / 8);
-  if (data.slice(2 + n * 8).some((b) => b)) return { error: 'じゅもんが ちがいます' };
-  let bytes = new Uint8Array(n);
-  for (let i = 0; i < n; i++) bytes[i] = data.slice(2 + i * 8, 10 + i * 8).reduce((v, b) => v * 2 + b, 0);
-  try {
-    if (data[1]) {
-      if (typeof DecompressionStream !== 'function') return { error: 'このブラウザでは よめない じゅもんです' };
-      bytes = await pipeBytes(bytes, new DecompressionStream('deflate-raw'));
-    }
-    return { text: (data[0] ? 'https://' : '') + new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
-  } catch (e) {
-    return { error: 'じゅもんが ちがいます' };
-  }
-}
-</script>
+<script src="js/common.js"></script>
+<script src="js/jumon-core.js"></script>
 
 <script>
-const $ = (id) => document.getElementById(id);
 let lastJumon = '';
-
-function switchTab(name) {
-  for (const t of ['make', 'read']) {
-    $('pane-' + t).classList.toggle('hidden', t !== name);
-    $('tab-' + t).classList.toggle('on', t === name);
-  }
-}
-const groups = (s, n) => s.match(new RegExp(`.{1,${n}}`, 'g')) || [];
-// リンクには ひらがなの代わりに 英数字1文字ずつを使う(ひらがなのままだと %E3%82%8D… の羅列になって長くなるため)
-const LINK_CHARS = '0123456789abcdefghijklmnopqrstuv';
-const shareUrl = (j) => `${location.origin}${location.pathname}#j=${[...j].map((ch) => LINK_CHARS[JUMON_KANA.indexOf(ch)]).join('')}`;
-// コピーする文章: じゅもんを見せてから、その下にリンク
-const shareText = (j) => `ふっかつのじゅもん\n${groups(j, 12).map((r) => groups(r, 4).join(' ')).join('\n')}\n${shareUrl(j)}`;
-
 async function doMake() {
   const text = $('make-in').value;
   $('make-msg').textContent = '';
@@ -200,187 +99,14 @@ async function doMake() {
   $('make-result').classList.remove('hidden');
 }
 
-async function doRead() {
-  const r = await jumonDecode($('read-in').value);
-  $('read-msg').textContent = r.error || '';
-  $('read-result').classList.toggle('hidden', !!r.error);
-  if (r.error) return;
-  $('read-out').textContent = r.text;
-  $('read-copy').onclick = (e) => copyWithFeedback(e.currentTarget, r.text);
-  showDestination(r.text, 'read-link', 'read-dest');
-}
-
-// コピーして、押したボタンの文字を しばらく「✓ コピーしました」にする(メッセージ欄は スクロールで見えないことがあるため)
-async function copyWithFeedback(btn, s) {
-  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
-  let ok = true;
-  try { await navigator.clipboard.writeText(s); }
-  catch (e) {
-    // クリップボードAPIが使えないときの予備
-    const t = document.createElement('textarea'); t.value = s; t.style.position = 'fixed'; t.style.opacity = '0';
-    document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove();
-  }
-  btn.textContent = ok ? '✓ コピーしました' : 'コピーできませんでした';
-  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = label; }, 1800);
-}
-
-// 画像のじゅもんは 決まったマス目に1文字ずつ置く(画像から読みとるときも同じ位置を見る)
-const IMG = { W: 720, top: 120, lineH: 56, cell: 46, gap: 24, perRow: 12 };
-const cellX = (i) => (IMG.W - (IMG.perRow * IMG.cell + 2 * IMG.gap)) / 2 + i * IMG.cell + Math.floor(i / 4) * IMG.gap;
-// 行き先のサイトを 文字で示す。よく知られたサービスは ドメインが完全に一致したときだけ 名前を出す
-// (youtube.com.example.xyz のような にせのURLに だまされないように)
-const KNOWN_SITES = [
-  ['YouTube', ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be']],
-  ['X', ['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com']],
-  ['Instagram', ['instagram.com', 'www.instagram.com']],
-  ['TikTok', ['tiktok.com', 'www.tiktok.com', 'vt.tiktok.com', 'vm.tiktok.com']],
-  ['note', ['note.com']],
-  ['LINE', ['line.me', 'liff.line.me']],
-  ['Googleマップ', ['maps.app.goo.gl']],
-];
-function siteOf(text) {
-  const t = text.trim();
-  if (/\s/.test(t)) return null;
-  let u; try { u = new URL(t); } catch (e) { return null; }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-  const host = u.hostname.toLowerCase(), hit = KNOWN_SITES.find(([, hs]) => hs.includes(host));
-  return { url: u.href, host, name: hit ? hit[0] : null };
-}
-const siteLabel = (s) => (s.name ? `${s.name}（${s.host}）` : s.host);
-// 読みとった結果の「このばしょへ いく」と 行き先の表示。知らないサイトは 開く前に たしかめる
-function showDestination(text, linkId, destId) {
-  const s = siteOf(text), link = document.getElementById(linkId), dest = document.getElementById(destId);
-  link.classList.toggle('hidden', !s); dest.classList.toggle('hidden', !s);
-  if (!s) return;
-  link.href = s.url;
-  dest.textContent = s.name ? `行き先：${siteLabel(s)}` : `行き先：${s.host}（よく知られたサイトでは ありません。開く前に たしかめてください）`;
-  dest.style.color = s.name ? '#7ad17a' : '#ffb46a';
-  link.onclick = s.name ? null : (e) => { if (!confirm(`${s.host} を ひらきます。よろしいですか？`)) e.preventDefault(); };
-}
-async function drawJumonImage(j, text) {
-  try { await document.fonts.load('34px "DotGothic16"'); } catch (e) {}
-  const rows = groups(j, IMG.perRow);
-  const W = IMG.W, H = IMG.top + rows.length * IMG.lineH + 40;
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
-  const x = c.getContext('2d');
-  x.fillStyle = '#000'; x.fillRect(0, 0, W, H);
-  x.fillStyle = '#0a0b1c'; x.fillRect(16, 16, W - 32, H - 32);
-  x.strokeStyle = '#f4f4f8'; x.lineWidth = 6; x.strokeRect(19, 19, W - 38, H - 38);
-  x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.font = '30px "DotGothic16", monospace'; x.fillStyle = '#ffd23b'; x.fillText('ふっかつのじゅもん', W / 2, 66);
-  // 行き先も 文字で 見せておく(じゅもんの位置には かからない)
-  const site = text && siteOf(text);
-  if (site) { x.font = '18px "DotGothic16", monospace'; x.fillStyle = '#b6b6d8'; x.fillText(`行き先：${siteLabel(site)}`, W / 2, 100); }
-  x.font = '34px "DotGothic16", monospace'; x.fillStyle = '#f4f4f8';
-  rows.forEach((r, ri) => [...r].forEach((ch, i) => x.fillText(ch, cellX(i) + IMG.cell / 2, IMG.top + ri * IMG.lineH + IMG.lineH / 2)));
-  return c;
-}
-// 1マスを12×12に区切った明るさで、32文字の見本と くらべる
-function cellFeature(px, w, row, i) {
-  const G = 12, x0 = cellX(i) + 4, y0 = IMG.top + row * IMG.lineH + 9, size = 38, f = new Float32Array(G * G);
-  let ink = 0;
-  for (let gy = 0; gy < G; gy++) for (let gx = 0; gx < G; gx++) {
-    let s = 0, k = 0;
-    for (let yy = Math.floor(y0 + (gy * size) / G); yy < Math.floor(y0 + ((gy + 1) * size) / G); yy++)
-      for (let xx = Math.floor(x0 + (gx * size) / G); xx < Math.floor(x0 + ((gx + 1) * size) / G); xx++) { const p = (yy * w + xx) * 4; s += px[p] * 0.299 + px[p + 1] * 0.587 + px[p + 2] * 0.114; k++; }
-    f[gy * G + gx] = s / k;
-    if (s / k > 100) ink++;
-  }
-  const mean = f.reduce((a, b) => a + b, 0) / f.length;
-  let norm = 0;
-  for (let k = 0; k < f.length; k++) { f[k] -= mean; norm += f[k] * f[k]; }
-  norm = Math.sqrt(norm) || 1;
-  for (let k = 0; k < f.length; k++) f[k] /= norm;
-  return { f, ink };
-}
-const pixelsOf = (c) => c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, c.width, c.height).data;
-let jumonTemplates = null;
-async function readJumonImage(img) {
-  if (!jumonTemplates) {
-    const t = await drawJumonImage(JUMON_KANA), px = pixelsOf(t);
-    jumonTemplates = [...JUMON_KANA].map((ch, k) => ({ ch, f: cellFeature(px, t.width, Math.floor(k / IMG.perRow), k % IMG.perRow).f }));
-  }
-  // 横幅720に そろえてから、決まったマス目を読む
-  const H = Math.round((img.height * IMG.W) / img.width), rows = Math.round((H - IMG.top - 40) / IMG.lineH);
-  if (rows < 1 || rows > 20) return '';
-  const c = document.createElement('canvas'); c.width = IMG.W; c.height = H;
-  c.getContext('2d').drawImage(img, 0, 0, IMG.W, H);
-  const px = pixelsOf(c);
-  let out = '';
-  for (let r = 0; r < rows; r++) for (let i = 0; i < IMG.perRow; i++) {
-    const { f, ink } = cellFeature(px, IMG.W, r, i);
-    if (ink < 3) continue;
-    let best = null, bestScore = -Infinity;
-    for (const t of jumonTemplates) { let s = 0; for (let k = 0; k < f.length; k++) s += f[k] * t.f[k]; if (s > bestScore) { bestScore = s; best = t.ch; } }
-    out += best;
-  }
-  return out;
-}
-
-// 保存するファイル名の末尾に日時をつける(例: fukkatsu-frame-20261029-103015.jpg)
-function stampName(base, ext) {
-  const d = new Date(), z = (n) => String(n).padStart(2, '0');
-  return `${base}-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.${ext}`;
-}
-// スマホは共有シート(写真やファイルに保存できる)、PCのChrome・Edgeは「名前を付けて保存」、それ以外はダウンロード
-async function saveBlob(blob, name) {
-  const file = new File([blob], name, { type: blob.type });
-  if (/iPhone|iPad|Android/.test(navigator.userAgent) && navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
-  }
-  if (window.showSaveFilePicker) {
-    try {
-      const h = await window.showSaveFilePicker({ suggestedName: name });
-      const w = await h.createWritable(); await w.write(blob); await w.close();
-      return;
-    } catch (e) { if (e.name === 'AbortError') return; }
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
 async function saveImage() {
   const c = await drawJumonImage(lastJumon, $('make-in').value);
   saveBlob(await new Promise((r) => c.toBlob(r)), stampName('fukkatsu-jumon', 'png'));
 }
 
-// じゅもん入力用のキーボード（使う32文字＋もどる・けす）
-(() => {
-  const kbd = $('kbd'), inp = $('read-in');
-  const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; kbd.appendChild(b); };
-  for (const ch of JUMON_KANA) add(ch, () => { inp.value += ch; });
-  add('もどる', () => { inp.value = [...inp.value.replace(/\s+$/, '')].slice(0, -1).join(''); }, 'fn');
-  add('けす', () => { inp.value = ''; $('read-msg').textContent = ''; $('read-result').classList.add('hidden'); }, 'fn');
-})();
-
-$('img-in').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; e.target.value = '';
-  if (!file) return;
-  $('read-msg').textContent = 'よみとっています…';
-  let j = '';
-  try {
-    const img = new Image(), url = URL.createObjectURL(file);
-    await new Promise((ok, ng) => { img.onload = ok; img.onerror = ng; img.src = url; });
-    URL.revokeObjectURL(url);
-    j = await readJumonImage(img);
-  } catch (err) {}
-  if (!j) { $('read-msg').textContent = 'がぞうから じゅもんを みつけられませんでした'; return; }
-  $('read-in').value = groups(j, 4).join(' ');
-  doRead();
-});
-
-for (const [id, fn] of [['make-in', doMake], ['read-in', doRead]]) {
-  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); fn(); } });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const m = location.hash.match(/^#jumon=(.+)$/), mj = location.hash.match(/^#j=([0-9a-v]+)$/);
-  let pre = null;
-  if (mj) pre = [...mj[1]].map((c) => JUMON_KANA[LINK_CHARS.indexOf(c)]).join('');
-  else if (m) { try { pre = decodeURIComponent(m[1]); } catch (e) {} }  // 以前の形のリンク
-  if (pre) { switchTab('read'); $('read-in').value = groups(pre, 4).join(' '); doRead(); }
-  else switchTab('make');
-});
+$('make-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doMake(); } });
+// 以前の じゅもんリンク(jumon.html#j=…)で 開かれたら、読みとり用の ふっかつページへ
+if (jumonFromHash(location.hash)) location.replace(`fukkatsu.html${location.hash}`);
 </script>
 </body>
 </html>

@@ -38,6 +38,10 @@
 <div id="app">
   <h1>QRじゃないQR</h1>
   <p class="lead">ことばや URLを、じゅもんや<br>メロディや フレームに かえて つたえよう</p>
+  <a class="win item" href="fukkatsu.html" style="border-color:#ffd23b">
+    <div class="name">ふっかつ（よみとる）</div>
+    <div class="desc">じゅもん・メロディ・フレームから ことばを とりだす。文字・ファイル・マイク・カメラで よみとれる。</div>
+  </a>
   <a class="win item" href="jumon.html">
     <div class="name">ふっかつのじゅもん</div>
     <div class="desc">ひらがなの じゅもんに かえる。見まちがえやすい文字は つかわないので、紙に書いて わたせる。</div>
@@ -53,7 +57,7 @@
   <div class="ver" id="ver"></div>
 </div>
 <script>
-const APP_VERSION = 'v1.6.1';
+const APP_VERSION = 'v1.7.0';
 document.getElementById('ver').textContent = APP_VERSION.startsWith('__') ? '開発版' : APP_VERSION;
 </script>
 </body>

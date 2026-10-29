@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ふっかつ - QRじゃないQR</title>
+<meta name="description" content="じゅもん・メロディ・フレームから、うめこまれた ことばやURLを ふっかつさせる。文字・ファイル・マイク・カメラから読みとれます。">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta property="og:title" content="ふっかつ - QRじゃないQR">
+<meta property="og:description" content="じゅもん・メロディ・フレームから、うめこまれた ことばやURLを ふっかつさせる。文字・ファイル・マイク・カメラから読みとれます。">
+<meta property="og:url" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/fukkatsu.html">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://kyunkyunpeachdisco-maker.github.io/not-qr/icons/ogp.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body { font-family: 'DotGothic16', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'MS Gothic', monospace; background: #000; color: #f4f4f8; font-size: 16px; }
+  #app { height: 100dvh; max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; background: #05060d; }
+  .back { align-self: flex-start; padding: 10px 12px 0; color: #b6b6d8; font-size: 14px; text-decoration: none; }
+  h1 { text-align: center; color: #ffd23b; font-size: 24px; letter-spacing: 6px; padding: 2px 8px 8px; text-shadow: 2px 2px 0 #000; font-weight: normal; }
+  #log { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 10px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .me { align-self: flex-end; max-width: 80%; background: #1d2a52; border-radius: 14px 14px 4px 14px; padding: 10px 12px; line-height: 1.6; word-break: break-all; white-space: pre-wrap; }
+  .me img, .me video { display: block; max-width: 100%; max-height: 220px; border-radius: 8px; }
+  .me audio { width: 240px; max-width: 100%; }
+  .bot { align-self: flex-start; max-width: 92%; background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000; padding: 12px 14px; line-height: 1.7; display: flex; flex-direction: column; gap: 8px; }
+  .bot .head { color: #ffd23b; font-size: 14px; }
+  .bot .text { white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  .bot .dest { font-size: 14px; }
+  .bot .err { color: #ff8a8a; }
+  .bot .note { color: #b6b6d8; font-size: 13px; }
+  .bot .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bot .live { font-size: 34px; color: #ffd23b; min-height: 1.3em; text-align: center; }
+  .bar { height: 8px; background: #000; border: 1px solid #555; border-radius: 2px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: #4cd24c; transition: width 0.2s; }
+  .btn { font-family: inherit; font-size: 15px; padding: 8px 12px; border: 2px solid #f4f4f8; border-radius: 5px; background: #0a0b1c; color: #f4f4f8; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn.primary { border-color: #ffd23b; color: #ffd23b; }
+  .btn:active { background: #f4f4f8; color: #0a0b1c; }
+  #input { border-top: 2px solid #23243a; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); display: flex; align-items: flex-end; gap: 6px; background: #05060d; }
+  #input .icon { flex: none; width: 42px; height: 42px; border-radius: 50%; border: 2px solid #f4f4f8; background: #0a0b1c; color: #f4f4f8; font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-family: inherit; }
+  #input .icon.on { border-color: #ff6a6a; color: #ff6a6a; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0.5; } }
+  #text { flex: 1; min-width: 0; font-family: inherit; font-size: 16px; line-height: 1.5; max-height: 120px; resize: none; padding: 9px 10px; background: #0a0b1c; color: #f4f4f8; border: 2px solid #f4f4f8; border-radius: 18px; }
+  #send { border-color: #ffd23b; color: #ffd23b; }
+  .hello { color: #b6b6d8; font-size: 14px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div id="app">
+  <a class="back" href="./">◀ もどる</a>
+  <h1>ふっかつ</h1>
+  <div id="log">
+    <div class="bot hello">
+      <div class="head">ようこそ！</div>
+      <div>じゅもん・メロディ・フレームから、うめこまれた ことばを ふっかつさせます。</div>
+      <div>・じゅもんは 下に打つか、はりつけて ▶ で送る<br>・＋ で じゅもんの画像・フレームの写真や動画・メロディの音を えらぶ<br>・🎤 で メロディを ききとる<br>・📷 で 紙や画面の じゅもんを 撮る</div>
+    </div>
+  </div>
+  <div id="input">
+    <label class="icon" title="ファイル">＋<input type="file" id="file-in" hidden></label>
+    <label class="icon" title="カメラ">📷<input type="file" id="cam-in" accept="image/*" capture="environment" hidden></label>
+    <button class="icon" id="mic-btn" title="マイク">🎤</button>
+    <textarea id="text" rows="1" spellcheck="false" autocomplete="off" placeholder="じゅもん・リンクを いれる"></textarea>
+    <button class="icon" id="send" title="送る（Ctrl+Enter）">▶</button>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/jumon-core.js"></script>
+<script src="js/melody-core.js"></script>
+<script src="js/frame-core.js"></script>
+<script>
+const log = $('log');
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+function scrollDown() { requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; }); }
+function addMe(...nodes) { const b = el('div', 'me'); b.append(...nodes); log.appendChild(b); scrollDown(); return b; }
+function addBot(...nodes) { const b = el('div', 'bot'); b.append(...nodes); log.appendChild(b); scrollDown(); return b; }
+function addError(msg, note) { return addBot(el('div', 'err', msg), ...(note ? [el('div', 'note', note)] : [])); }
+// ふっかつした ことばを 見せる。URLなら 行き先と「このばしょへ いく」をつける(知らないサイトは 開く前に たしかめる)
+function addResult(from, text) {
+  const nodes = [el('div', 'head', `◆ ${from}から ふっかつ`), el('div', 'text', text)];
+  const row = el('div', 'row');
+  const s = siteOf(text);
+  if (s) {
+    const dest = el('div', 'dest', s.name ? `行き先：${siteLabel(s)}` : `行き先：${s.host}（よく知られたサイトでは ありません。開く前に たしかめてください）`);
+    dest.style.color = s.name ? '#7ad17a' : '#ffb46a';
+    nodes.push(dest);
+    const a = el('a', 'btn primary', 'このばしょへ いく');
+    a.href = s.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    if (!s.name) a.onclick = (e) => { if (!confirm(`${s.host} を ひらきます。よろしいですか？`)) e.preventDefault(); };
+    row.appendChild(a);
+  }
+  const copy = el('button', 'btn', 'コピー');
+  copy.onclick = () => copyWithFeedback(copy, text);
+  row.appendChild(copy);
+  nodes.push(row);
+  return addBot(...nodes);
+}
+const working = (msg) => addBot(el('div', 'note', msg));
+
+// ===== 文字(じゅもん・じゅもんのリンク) =====
+async function sendText() {
+  const raw = $('text').value.trim();
+  if (!raw) return;
+  $('text').value = ''; fitText();
+  addMe(document.createTextNode(raw));
+  await readJumonText(raw, 'じゅもん');
+}
+async function readJumonText(raw, from) {
+  const j = jumonFromHash(raw) || raw;
+  const r = await jumonDecode(j);
+  if (r.error) {
+    // じゅもんではなく、URLや ふつうの文が はりつけられたとき
+    if (siteOf(raw)) return addResult('URL', raw);
+    return addError(r.error, 'じゅもん（ひらがな）か、じゅもんの リンクを いれてください。');
+  }
+  addResult(from, r.text);
+}
+
+// ===== ファイル(画像・動画・音) =====
+const isAudio = (f) => f.type.startsWith('audio/') || /\.(wav|mp3|m4a|aac|ogg|webm)$/i.test(f.name) && !f.type.startsWith('video/');
+async function readFile(file, fromCamera) {
+  const url = URL.createObjectURL(file);
+  if (file.type.startsWith('video/')) {
+    const v = el('video'); v.src = url; v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.controls = true;
+    addMe(v);
+    const w = working('フレームを さがしています…');
+    let info = null; try { info = await readMedia(file); } catch (e) {}
+    w.remove();
+    return info ? addResult('フレーム', info.text) : addError('フレームを 見つけられませんでした', 'このアプリで作った フレームつきの動画を、切りとらずに そのまま えらんでください。');
+  }
+  if (isAudio(file)) {
+    const au = el('audio'); au.src = url; au.controls = true;
+    addMe(au, el('div', 'note', file.name));
+    const w = working('メロディを ききとっています…');
+    let r = { status: 'fail' };
+    try { const ctx = new AudioContext(), buf = await ctx.decodeAudioData(await file.arrayBuffer()); ctx.close(); r = await decodeSamples(buf.getChannelData(0), buf.sampleRate); } catch (e) {}
+    w.remove();
+    return r.status === 'done' ? addResult('メロディ', r.text) : addError('メロディを ききとれませんでした', 'このアプリで作った きょくを、はじめから さいごまで ふくむ音を えらんでください。');
+  }
+  let img;
+  try { img = await loadImage(file); } catch (e) { return addError('ひらけない ファイルです'); }
+  const shown = el('img'); shown.src = url; addMe(shown);
+  const w = working('よみとっています…');
+  // じゅもんの画像 → フレーム の順に ためす
+  try {
+    const j = await readJumonImage(img);
+    const r = j && (await jumonDecode(j));
+    if (r && !r.error) { w.remove(); return addResult('じゅもんの画像', r.text); }
+  } catch (e) {}
+  let info = null; try { info = await readFrame(img); } catch (e) {}
+  if (info) { w.remove(); return addResult('フレーム', info.text); }
+  if (fromCamera) { w.remove(); return readByOcr(img); }
+  w.remove();
+  addError('じゅもんの画像にも フレームにも 見えませんでした', '保存した画像を そのまま えらんでください。紙や画面を 撮った写真は 📷 から どうぞ。');
+}
+
+// ===== カメラ: 撮った じゅもんを 文字認識で読む =====
+let ocrWorker = null;
+function loadScript(src) { return new Promise((ok, ng) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = ng; document.head.appendChild(s); }); }
+async function readByOcr(img) {
+  const w = working('文字を よみとっています…（はじめは 準備に 少し時間が かかります）');
+  let text = '';
+  try {
+    if (!ocrWorker) {
+      await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+      ocrWorker = await Tesseract.createWorker('jpn');
+      await ocrWorker.setParameters({ tessedit_char_whitelist: JUMON_KANA + Object.keys(JUMON_ALIAS).join('') });
+    }
+    text = (await ocrWorker.recognize(img)).data.text;
+  } catch (e) { w.remove(); return addError('文字認識を 使えませんでした', 'ネットに つながっているか たしかめてください。'); }
+  w.remove();
+  // タイトル(ふっかつのじゅもん)や 行き先の行は のぞいて、じゅもんの行だけ使う
+  // (文字認識は 文字のあいだに 空白を入れて返すので、空白を とってから 見る)
+  const lines = text.split('\n').map((l) => l.replace(/\s/g, '')).filter((l) => l.length > 2 && !/ふ[っつ]か|じ[ゅゆ]もん|行き先|[A-Za-z]{3,}/.test(l));
+  const raw = lines.join('').replace(/[^ぁ-ゖァ-ヺ]/g, '');
+  const kana = jumonNormalize(raw).text;
+  if (!kana) return addError('じゅもんの 文字が 見つかりませんでした', 'じゅもんが 大きく、まっすぐ 写るように 撮ってください。');
+  // じゅもんに 小さい文字は ないので、まず 小さい文字を とりのぞいて ためす。だめなら 1文字ずつ 抜いて ためし、
+  // チェック文字が 合うものが 1つだけなら それを使う(よけいな文字を 1つ 読んでしまうことが 多いため)
+  const tries = [jumonNormalize(raw.replace(/[ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]/g, '')).text, kana];
+  for (const t of tries) { const r = await jumonDecode(t); if (!r.error) return addResult('撮った じゅもん', r.text); }
+  for (const t of tries) {
+    const hits = new Map();
+    for (let i = 0; i < t.length; i++) { const r = await jumonDecode(t.slice(0, i) + t.slice(i + 1)); if (!r.error) hits.set(r.text, true); }
+    if (hits.size === 1) return addResult('撮った じゅもん', [...hits.keys()][0]);
+  }
+  // 読みまちがいが あるときは、読みとった じゅもんを 入力らんに入れて 直してもらう
+  $('text').value = groups(kana, 4).join(' '); fitText();
+  addError('じゅもんの 読みとりに まちがいが あるようです', `読みとった じゅもんを 入力らんに 入れました。写真と見くらべて まちがいを 直し、▶ で送ってください。\n${groups(kana, 4).join(' ')}`);
+}
+
+// ===== マイク: メロディを ききとる =====
+let mic = null;
+async function toggleMic() {
+  if (mic) return stopMic(true);
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+  catch (e) { return addError('マイクが つかえません', 'ブラウザの マイクの きょかを たしかめてください。'); }
+  const ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream), proc = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain();
+  mute.gain.value = 0; src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  const L = makeListener(ctx.sampleRate), started = Date.now();
+  proc.onaudioprocess = (e) => L.append(e.inputBuffer.getChannelData(0));
+  const live = el('div', 'live'), state = el('div', 'note', '合図を まっています…（もういちど 🎤 で とめる）'), bar = el('div', 'bar'), fill = el('div');
+  bar.appendChild(fill);
+  const bubble = addBot(el('div', 'head', '🎤 メロディを ききとっています'), live, state, bar);
+  let busy = false;
+  mic = { stream, ctx, bubble, timer: setInterval(async () => {
+    if (busy || !mic) return;
+    busy = true;
+    const f = L.frames[L.frames.length - 1];
+    if (f) { const c = f.indexOf(Math.max(...f)); live.textContent = share(f, c) > 0.5 ? '♪' + NOTE_NAME[c] : ''; }
+    const r = await listenStep(L);
+    if (r.status === 'reading') { state.textContent = 'よみとっています…'; fill.style.width = `${Math.round((r.got / r.total) * 100)}%`; }
+    if (r.status === 'done') { stopMic(); addResult('メロディ', r.text); }
+    else if (r.status === 'fail') { stopMic(); addError('メロディを ききとれませんでした', 'もういちど はじめから きかせてください。しずかな ところで、スピーカーの ちかくに マイクを むけると よみとりやすくなります。'); }
+    else if (Date.now() - started > 120000) { stopMic(); addError('じかんぎれです'); }
+    busy = false;
+  }, 300) };
+  $('mic-btn').classList.add('on');
+}
+function stopMic(byUser) {
+  if (!mic) return;
+  clearInterval(mic.timer); mic.stream.getTracks().forEach((t) => t.stop()); mic.ctx.close();
+  if (byUser) mic.bubble.remove();
+  mic = null; $('mic-btn').classList.remove('on');
+}
+
+// ===== 入力らん =====
+function fitText() { const t = $('text'); t.style.height = 'auto'; t.style.height = `${Math.min(120, t.scrollHeight)}px`; }
+$('text').addEventListener('input', fitText);
+$('text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendText(); } });
+$('send').addEventListener('click', sendText);
+$('mic-btn').addEventListener('click', toggleMic);
+for (const [id, cam] of [['file-in', false], ['cam-in', true]]) {
+  $(id).addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f, cam); });
+}
+// じゅもんの リンク(#j=…)で 開かれたら、すぐに読む
+function readHash() { if (jumonFromHash(location.hash)) { addMe(document.createTextNode('（リンクから ひらきました）')); readJumonText(location.hash, 'じゅもんの リンク'); } }
+readHash();
+window.addEventListener('hashchange', readHash);
+</script>
+</body>
+</html>
