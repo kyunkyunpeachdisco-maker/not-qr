@@ -285,7 +285,7 @@ async function saveFrameOnly() {
   saveBlob(await toBlob(c, 'image/png'), stampName('fukkatsu-frame-only', 'png'));
 }
 // 動画: 最初から最後まで再生しながら、フレームと重ねた絵を録画する(音もそのまま)
-let audioRoute = null, capNote = '';
+let audioRoute = null;
 async function saveVideo() {
   // 進み具合は 押したボタンに出す(上のメッセージ欄は スクロールで 見えないことがあるため)
   const btn = $('save-btn'), label = btn.textContent;
@@ -308,14 +308,12 @@ async function saveVideo() {
     } catch (err) { audio = null; }
     // iPhoneは 動画ファイルから 音を 取りだせないことがある。そのときは 再生しながら 音を 録る(聞こえないように)
     let cap = null;
-    capNote = audio ? '・ファイルから' : '';
     if (!audio && audioRoute) {
       const ac = audioRoute.ac, proc = ac.createScriptProcessor(4096, 2, 2), mute = ac.createGain(), bufs = [[], []];
       mute.gain.value = 0; audioRoute.src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
       cap = { on: false, bufs, stop: () => { try { audioRoute.src.disconnect(proc); proc.disconnect(); mute.disconnect(); } catch (e) {} } };
       proc.onaudioprocess = (e) => { if (cap.on) for (let k = 0; k < 2; k++) bufs[k].push(new Float32Array(e.inputBuffer.getChannelData(Math.min(k, e.inputBuffer.numberOfChannels - 1)))); };
       audio = { sampleRate: ac.sampleRate, channels: [new Float32Array(1), new Float32Array(1)] };
-      capNote = `・再生から録音 ${ac.state}`;
     }
     const enc = document.createElement('canvas'); enc.width = frameImg.width + (frameImg.width & 1); enc.height = frameImg.height + (frameImg.height & 1);
     const ex = enc.getContext('2d');
@@ -342,12 +340,12 @@ async function saveVideo() {
   } catch (err) { blob = null; v.muted = true; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${err && err.message}）`; }
   if (!blob && encodeVideoFile.note) $('make-msg').textContent = `録画で 作ります（${encodeVideoFile.note}）`;
   if (blob) {
-    $('make-msg').textContent = `✓ どうがが できました（${encodeVideoFile.note}${capNote}）`;
+    $('make-msg').textContent = '✓ どうがが できました';
     v.muted = true;
     document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
     btn.textContent = label; $('video-wait').classList.add('hidden');
     await seekVideo(v, 0.1); render();
-    saveBlobLater(blob, stampName('fukkatsu-frame', 'mp4'), `${encodeVideoFile.note}${capNote}`);
+    saveBlobLater(blob, stampName('fukkatsu-frame', 'mp4'));
     return;
   }
   // 使えないブラウザでは 再生しながら 録画する
