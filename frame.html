@@ -115,8 +115,8 @@
 
 </div>
 
-<script src="js/common.js?v=1.12.6"></script>
-<script src="js/frame-core.js?v=1.12.6"></script>
+<script src="js/common.js?v=1.12.7"></script>
+<script src="js/frame-core.js?v=1.12.7"></script>
 
 <script>
 function choiceGroup(id, entries, initial, onPick) {
@@ -347,7 +347,7 @@ async function saveVideo() {
     document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
     btn.textContent = label; $('video-wait').classList.add('hidden');
     await seekVideo(v, 0.1); render();
-    saveBlobLater(blob, stampName('fukkatsu-frame', 'mp4'));
+    saveBlobLater(blob, stampName('fukkatsu-frame', 'mp4'), `${encodeVideoFile.note}${capNote}`);
     return;
   }
   // 使えないブラウザでは 再生しながら 録画する
@@ -382,7 +382,7 @@ async function saveVideo() {
   document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
   btn.textContent = label; $('video-wait').classList.add('hidden');
   await seekVideo(v, 0.1); render();
-  saveBlobLater(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-frame', mime.includes('mp4') ? 'mp4' : 'webm'));
+  saveBlobLater(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-frame', mime.includes('mp4') ? 'mp4' : 'webm'), `録画で 作りました ${mime}（${encodeVideoFile.note || $('make-msg').textContent}）`);
 }
 
 $('make-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doMake(); } });
