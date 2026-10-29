@@ -170,6 +170,12 @@ async function saveBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+// 時間のかかる保存(動画)。スマホは ボタンを押してから 時間がたつと 共有シートを ひらけないので、
+// できあがったら「ほぞんする」ボタンを出して もう一度 押してもらう
+function saveBlobLater(blob, name) {
+  if (/iPhone|iPad|Android/.test(navigator.userAgent)) return askToSave(blob, name);
+  return saveBlob(blob, name);
+}
 // 「ほぞんする」ボタンを 画面の下に出し、押されたら 保存する(押した その場でなら 共有シートを ひらける)
 function askToSave(blob, name) {
   document.getElementById('save-ready')?.remove();

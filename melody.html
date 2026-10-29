@@ -186,7 +186,7 @@ async function saveVideo() {
       blob = await encodeVideoFile({ canvas: c, duration: dur, draw: drawAt, audio: { sampleRate: buf.sampleRate, channels: [buf.getChannelData(0)] }, bitrate: 6000000,
         onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
     } catch (e) { blob = null; }
-    if (blob) { saveBlob(blob, stampName('fukkatsu-melody', 'mp4')); return; }
+    if (blob) { saveBlobLater(blob, stampName('fukkatsu-melody', 'mp4')); return; }
     scroll = 0;
     const stream = c.captureStream(30), src = ac.createBufferSource(), dest = ac.createMediaStreamDestination();
     src.buffer = buf; src.connect(dest);
@@ -211,7 +211,7 @@ async function saveVideo() {
     await new Promise((ok) => setTimeout(ok, 300));
     rec.stop(); cancelAnimationFrame(raf);
     await stopped;
-    saveBlob(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-melody', mime.includes('mp4') ? 'mp4' : 'webm'));
+    saveBlobLater(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-melody', mime.includes('mp4') ? 'mp4' : 'webm'));
   } catch (e) {
     $('make-msg').textContent = 'このブラウザでは どうがを 作れませんでした';
   } finally {

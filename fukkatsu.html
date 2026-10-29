@@ -49,6 +49,8 @@
   @keyframes blink { 50% { opacity: 0.5; } }
   #text { flex: 1; min-width: 0; font-family: inherit; font-size: 16px; line-height: 1.5; max-height: 120px; resize: none; padding: 9px 10px; background: #0a0b1c; color: #f4f4f8; border: 2px solid #f4f4f8; border-radius: 18px; }
   #send { border-color: #ffd23b; color: #ffd23b; }
+  .jumon { color: #f4f4f8; font-size: 20px; line-height: 1.7; letter-spacing: 2px; white-space: pre; }
+  .jumon-title { color: #ffd23b; font-size: 15px; letter-spacing: 4px; }
   .hello { color: #b6b6d8; font-size: 14px; line-height: 1.8; }
 </style>
 </head>
@@ -254,7 +256,13 @@ for (const [id, cam] of [['file-in', false], ['cam-in', true]]) {
   $(id).addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f, cam); });
 }
 // じゅもんの リンク(#j=…)で 開かれたら、すぐに読む
-function readHash() { if (jumonFromHash(location.hash)) { addMe(document.createTextNode('（リンクから ひらきました）')); readJumonText(location.hash, 'じゅもんの リンク'); } }
+// リンクから来たときも、じゅもんを 見せてから ふっかつさせる
+function readHash() {
+  const j = jumonFromHash(location.hash);
+  if (!j) return;
+  addMe(el('div', 'jumon-title', 'ふっかつのじゅもん'), el('div', 'jumon', groups(j, 12).map((r) => groups(r, 4).join(' ')).join('\n')), el('div', 'note', '（リンクから ひらきました）'));
+  readJumonText(location.hash, 'じゅもんの リンク');
+}
 readHash();
 window.addEventListener('hashchange', readHash);
 </script>

@@ -310,7 +310,7 @@ async function saveVideo() {
     document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
     btn.textContent = label; $('video-wait').classList.add('hidden');
     await seekVideo(v, 0.1); render();
-    saveBlob(blob, stampName('fukkatsu-frame', 'mp4'));
+    saveBlobLater(blob, stampName('fukkatsu-frame', 'mp4'));
     return;
   }
   // 使えないブラウザでは 再生しながら 録画する
@@ -345,7 +345,7 @@ async function saveVideo() {
   document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
   btn.textContent = label; $('video-wait').classList.add('hidden');
   await seekVideo(v, 0.1); render();
-  saveBlob(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-frame', mime.includes('mp4') ? 'mp4' : 'webm'));
+  saveBlobLater(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-frame', mime.includes('mp4') ? 'mp4' : 'webm'));
 }
 
 $('make-in').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doMake(); } });
