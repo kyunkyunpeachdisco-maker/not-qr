@@ -78,7 +78,7 @@
       <div class="info" id="make-info"></div>
       <div class="actions">
         <button onclick="copyText(lastJumon, 'じゅもんを コピーしました')">じゅもんを コピー</button>
-        <button onclick="copyText(shareUrl(lastJumon), 'リンクを コピーしました')">リンクを コピー</button>
+        <button onclick="copyText(shareText(lastJumon), 'リンクを コピーしました')">リンクを コピー</button>
         <button class="wide" onclick="saveImage()">がぞうで ほぞん</button>
       </div>
     </div>
@@ -183,7 +183,11 @@ function switchTab(name) {
   }
 }
 const groups = (s, n) => s.match(new RegExp(`.{1,${n}}`, 'g')) || [];
-const shareUrl = (j) => `${location.origin}${location.pathname}#jumon=${encodeURIComponent(j)}`;
+// リンクには ひらがなの代わりに 英数字1文字ずつを使う(ひらがなのままだと %E3%82%8D… の羅列になって長くなるため)
+const LINK_CHARS = '0123456789abcdefghijklmnopqrstuv';
+const shareUrl = (j) => `${location.origin}${location.pathname}#j=${[...j].map((ch) => LINK_CHARS[JUMON_KANA.indexOf(ch)]).join('')}`;
+// コピーする文章: じゅもんを見せてから、その下にリンク
+const shareText = (j) => `ふっかつのじゅもん\n${groups(j, 12).map((r) => groups(r, 4).join(' ')).join('\n')}\n${shareUrl(j)}`;
 
 async function doMake() {
   const text = $('make-in').value;
@@ -333,9 +337,10 @@ for (const [id, fn] of [['make-in', doMake], ['read-in', doRead]]) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const m = location.hash.match(/^#jumon=(.+)$/);
+  const m = location.hash.match(/^#jumon=(.+)$/), mj = location.hash.match(/^#j=([0-9a-v]+)$/);
   let pre = null;
-  if (m) { try { pre = decodeURIComponent(m[1]); } catch (e) {} }
+  if (mj) pre = [...mj[1]].map((c) => JUMON_KANA[LINK_CHARS.indexOf(c)]).join('');
+  else if (m) { try { pre = decodeURIComponent(m[1]); } catch (e) {} }  // 以前の形のリンク
   if (pre) { switchTab('read'); $('read-in').value = groups(pre, 4).join(' '); doRead(); }
   else switchTab('make');
 });
