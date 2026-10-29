@@ -26,10 +26,11 @@
   .back { align-self: flex-start; padding: 10px 12px 0; color: #b6b6d8; font-size: 14px; text-decoration: none; }
   h1 { text-align: center; color: #ffd23b; font-size: 24px; letter-spacing: 6px; padding: 2px 8px 8px; text-shadow: 2px 2px 0 #000; font-weight: normal; }
   #log { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 10px 16px; display: flex; flex-direction: column; gap: 12px; }
-  .me { align-self: flex-end; max-width: 80%; background: #1d2a52; border-radius: 14px 14px 4px 14px; padding: 10px 12px; line-height: 1.6; word-break: break-all; white-space: pre-wrap; }
-  .me img, .me video { display: block; max-width: 100%; max-height: 220px; border-radius: 8px; }
-  .me audio { width: 240px; max-width: 100%; }
-  .bot { align-self: flex-start; max-width: 92%; background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000; padding: 12px 14px; line-height: 1.7; display: flex; flex-direction: column; gap: 8px; }
+  /* いま えらんだもの(写真・動画・音・文字)。画面の まんなかに 1つだけ */
+  .me { align-self: center; max-width: 100%; color: #b6b6d8; line-height: 1.6; word-break: break-all; white-space: pre-wrap; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .me img, .me video { display: block; max-width: 100%; max-height: 34dvh; border-radius: 6px; }
+  .me audio { width: 280px; max-width: 100%; }
+  .bot { align-self: stretch; background: #0a0b1c; border: 3px solid #f4f4f8; border-radius: 6px; box-shadow: 0 0 0 2px #000; padding: 12px 14px; line-height: 1.7; display: flex; flex-direction: column; gap: 8px; }
   .bot .head { color: #ffd23b; font-size: 14px; }
   .bot .text { white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
   .bot .dest { font-size: 14px; }
@@ -66,7 +67,7 @@
     <label class="icon" title="ファイル">＋<input type="file" id="file-in" hidden></label>
     <label class="icon" title="カメラ">📷<input type="file" id="cam-in" accept="image/*" capture="environment" hidden></label>
     <button class="icon" id="mic-btn" title="マイク">🎤</button>
-    <textarea id="text" rows="1" spellcheck="false" autocomplete="off" placeholder="じゅもん・リンクを いれる"></textarea>
+    <textarea id="text" rows="1" spellcheck="false" autocomplete="off" placeholder="じゅもん・リンク"></textarea>
     <button class="icon" id="send" title="送る（Ctrl+Enter）">▶</button>
   </div>
 </div>
@@ -79,8 +80,9 @@
 const log = $('log');
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 function scrollDown() { requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; }); }
-function addMe(...nodes) { const b = el('div', 'me'); b.append(...nodes); log.appendChild(b); scrollDown(); return b; }
-function addBot(...nodes) { const b = el('div', 'bot'); b.append(...nodes); log.appendChild(b); scrollDown(); return b; }
+// 画面には「いま えらんだもの」と「その結果」だけを出す(新しく えらぶと 入れかわる)
+function addMe(...nodes) { stopMic(true); log.replaceChildren(); const b = el('div', 'me'); b.append(...nodes); log.appendChild(b); return b; }
+function addBot(...nodes) { log.querySelectorAll('.bot').forEach((e) => e.remove()); const b = el('div', 'bot'); b.append(...nodes); log.appendChild(b); scrollDown(); return b; }
 function addError(msg, note) { return addBot(el('div', 'err', msg), ...(note ? [el('div', 'note', note)] : [])); }
 // ふっかつした ことばを 見せる。URLなら 行き先と「このばしょへ いく」をつける(知らないサイトは 開く前に たしかめる)
 function addResult(from, text) {
@@ -102,7 +104,12 @@ function addResult(from, text) {
   nodes.push(row);
   return addBot(...nodes);
 }
-const working = (msg) => addBot(el('div', 'note', msg));
+// 作業中の表示。止まって見えないよう かかっている秒数も出す
+function working(msg) {
+  const note = el('div', 'note', msg), b = addBot(note), t0 = Date.now();
+  const tm = setInterval(() => { if (!b.isConnected) return clearInterval(tm); note.textContent = `${msg}（${Math.round((Date.now() - t0) / 1000)}びょう）`; }, 1000);
+  return b;
+}
 
 // ===== 文字(じゅもん・じゅもんのリンク) =====
 async function sendText() {
@@ -128,7 +135,7 @@ const isAudio = (f) => f.type.startsWith('audio/') || /\.(wav|mp3|m4a|aac|ogg|we
 async function readFile(file, fromCamera) {
   const url = URL.createObjectURL(file);
   if (file.type.startsWith('video/')) {
-    const v = el('video'); v.src = url; v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.controls = true;
+    const v = el('video'); v.src = url; v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.controls = true; v.preload = 'metadata'; v.autoplay = false;
     addMe(v);
     const w = working('フレームを さがしています…');
     let info = null; try { info = await readMedia(file); } catch (e) {}
@@ -211,6 +218,7 @@ async function toggleMic() {
   mute.gain.value = 0; src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
   const L = makeListener(ctx.sampleRate), started = Date.now();
   proc.onaudioprocess = (e) => L.append(e.inputBuffer.getChannelData(0));
+  log.replaceChildren();
   const live = el('div', 'live'), state = el('div', 'note', '合図を まっています…（もういちど 🎤 で とめる）'), bar = el('div', 'bar'), fill = el('div');
   bar.appendChild(fill);
   const bubble = addBot(el('div', 'head', '🎤 メロディを ききとっています'), live, state, bar);

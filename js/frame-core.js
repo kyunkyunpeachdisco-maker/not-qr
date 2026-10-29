@@ -742,7 +742,7 @@ function isOpaqueCenter(img) {
 async function readMedia(file) {
   if (!file.type.startsWith('video/')) return readFrame(await loadImage(file));
   const v = await loadVideo(file);
-  for (const t of [0.5, 1.5, v.duration / 2, v.duration * 0.8]) {
+  for (const t of [0.5, v.duration / 2]) {
     await seekVideo(v, Math.min(t, v.duration - 0.05));
     const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
