@@ -82,6 +82,10 @@
     <div id="new-frame" style="display:flex;flex-direction:column;gap:10px">
       <textarea id="make-in" rows="3" spellcheck="false" placeholder="つたえたい ことば・URL（例: https://example.com/）"></textarea>
       <div class="choices" id="themes"></div>
+      <div id="size-row" style="display:flex;flex-direction:column;gap:10px">
+        <div class="label">えの おおきさ</div>
+        <div class="choices three" id="sizes"></div>
+      </div>
       <div class="info hidden" id="video-note">どうがは 圧縮で 画質が落ちやすいので、QR風が いちばん 読みとりやすいです。</div>
       <div id="custom-panel" class="hidden" style="display:flex;flex-direction:column;gap:8px">
         <label class="btn" id="custom-label">そざいを えらぶ（8まい か 16まい）<input type="file" accept="image/png,image/jpeg,image/webp" multiple id="custom-in" hidden></label>
@@ -134,6 +138,9 @@ choiceGroup('shapes', Object.entries(SHAPES).map(([k, [name]]) => [k, name]), sh
 // わくの ふとさ: データは この太さの帯に入る。絵の大きさは 入る範囲で いちばん大きくなるよう 自動で決まる
 let bandKey = 'ふつう';
 choiceGroup('bands', Object.keys(BAND_CHOICES).map((k) => [k, k]), bandKey, (k) => { bandKey = k; });
+// えの おおきさ(絵巻・じぶんの素材): おおきい なら 絵が大きくなるまで 帯を太くする
+let sizeKey = 'ふつう';
+choiceGroup('sizes', [['ふつう', 'ふつう'], ['おおきい', 'おおきい']], sizeKey, (k) => { sizeKey = k; });
 let frameImg = null, frameInfo = null, view = { zoom: 1, dx: 0, dy: 0 };
 // デザインの見本アイコン
 function designIcon(key) {
@@ -148,9 +155,12 @@ function designIcon(key) {
 }
 function updateDesigns() {
   $('video-note').classList.toggle('hidden', !isVideo);
-  choiceGroup('themes', Object.entries(DESIGNS).map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" style="background:${d.kind === 'emaki' ? d.bg : 'none'};object-fit:contain" alt="">${d.name}`]), design, (k) => { design = k; $('custom-panel').classList.toggle('hidden', k !== 'custom'); });
+  choiceGroup('themes', Object.entries(DESIGNS).map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" style="background:${d.kind === 'emaki' ? d.bg : 'none'};object-fit:contain" alt="">${d.name}`]), design, (k) => { design = k; $('custom-panel').classList.toggle('hidden', k !== 'custom'); showSizeRow(); });
   $('custom-panel').classList.toggle('hidden', design !== 'custom');
+  showSizeRow();
 }
+// 絵巻・じぶんの素材のときだけ「えの おおきさ」を出す
+function showSizeRow() { $('size-row').classList.toggle('hidden', !['emaki', 'custom'].includes(DESIGNS[design].kind)); }
 updateDesigns();
 // じぶんの そざい: えらんだ画像を 下ごしらえ(背景を抜く・余白を切る)して ならべて見せる
 let customSprites = [];
@@ -202,7 +212,7 @@ async function doMake() {
     let band = BAND_CHOICES[bandKey], thick = false, ok = false;
     const msg = $('make-msg');
     for (;;) {
-      try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band, size: isVideo ? 1280 : 1600, sprites: customSprites }); }
+      try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band, size: isVideo ? 1280 : 1600, sprites: customSprites, big: sizeKey === 'おおきい' }); }
       catch (err) { msg.textContent = 'ながすぎて フレームに はいりません'; return; }
       frameInfo = frameImg.frameInfo;
       msg.style.color = '#b6b6d8'; msg.textContent = 'よみとれるか たしかめています…';
@@ -214,6 +224,7 @@ async function doMake() {
     }
     msg.style.color = ok ? '#7ad17a' : '';
     msg.textContent = !ok ? (design === 'custom' ? 'この そざいだと 読みとりにくいようです。似ている絵を ちがう絵に かえてみてください' : '読みとれる フレームを 作れませんでした。ことばを 短くしてみてください')
+      : thick && sizeKey === 'おおきい' ? '✓ 絵を おおきくするため わくを 太くしました'
       : thick ? '✓ 読みとれるように わくを 少し 太くしました' : '✓ よみとれることを たしかめました';
     if (!ok) return;
   } else {
