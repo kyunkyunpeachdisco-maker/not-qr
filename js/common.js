@@ -240,12 +240,14 @@ function annexbNals(u8) {
   if (start >= 0) out.push(u8.subarray(start));
   return out;
 }
+// Safariは コマの長さ(duration)も つけてこないことがあるので、ないときは 1コマぶんの長さにする
 function addAvcChunk(muxer, chunk, meta, state) {
-  if (meta && meta.decoderConfig) { state.made = true; return muxer.addVideoChunk(chunk, meta); }
   const raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
+  const dur = chunk.duration ?? state.frameDur;
+  if (meta && meta.decoderConfig) { state.made = true; return muxer.addVideoChunkRaw(raw, chunk.type, chunk.timestamp, dur, meta); }
   if (!(raw[0] === 0 && raw[1] === 0 && (raw[2] === 1 || (raw[2] === 0 && raw[3] === 1)))) {
     if (!state.made) throw new Error('no decoderConfig');
-    return muxer.addVideoChunk(chunk, meta);
+    return muxer.addVideoChunkRaw(raw, chunk.type, chunk.timestamp, dur, meta);
   }
   const nals = annexbNals(raw), body = nals.filter((n) => ![7, 8, 9].includes(n[0] & 31));
   let m;
@@ -261,7 +263,7 @@ function addAvcChunk(muxer, chunk, meta, state) {
   const data = new Uint8Array(body.reduce((a, n) => a + 4 + n.length, 0));
   let o = 0;
   for (const n of body) { data.set([n.length >>> 24, (n.length >> 16) & 255, (n.length >> 8) & 255, n.length & 255], o); data.set(n, o + 4); o += 4 + n.length; }
-  muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, chunk.duration || 0, m);
+  muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, dur, m);
 }
 // AAC の設定(AudioSpecificConfig)が ついてこないときは 自分で作る
 function addAacChunk(muxer, chunk, meta, state) {
@@ -271,7 +273,8 @@ function addAacChunk(muxer, chunk, meta, state) {
     meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: state.sampleRate, numberOfChannels: state.channels, description: asc.buffer } };
   }
   state.sent = true;
-  muxer.addAudioChunk(chunk, meta);
+  const raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
+  muxer.addAudioChunkRaw(raw, chunk.type, chunk.timestamp, chunk.duration ?? Math.round((1024 / state.sampleRate) * 1e6), meta);
 }
 // onStage(なまえ): いま どの段階か(止まったときに どこで止まったか わかるように)
 async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress, onStage = () => {} }) {
@@ -292,7 +295,7 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
   const target = new Mp4Muxer.ArrayBufferTarget();
   const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: W, height: H }, audio: aconf ? { codec: 'aac', sampleRate: aconf.sampleRate, numberOfChannels: aconf.numberOfChannels } : undefined, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
   let failed = null;
-  const vstate = { codec: vconf.codec, W, H };
+  const vstate = { codec: vconf.codec, W, H, frameDur: Math.round(1e6 / fps) };
   const venc = new VideoEncoder({ output: (chunk, meta) => { try { addAvcChunk(muxer, chunk, meta, vstate); } catch (e) { failed = e; } }, error: (e) => { failed = e; } });
   venc.configure(vconf);
   let count = 0, lastKey = -Infinity;
