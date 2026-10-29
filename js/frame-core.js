@@ -295,6 +295,33 @@ function classifyQR(px, W, Wu, Hu, slots, uw, uh) {
   return slots.map((s) => (lum(s.x, s.y) < thr ? 1 : 0));
 }
 
+// ===== 帯の太さと 窓(写真・動画が入るところ) =====
+// 帯の太さは 画像の短い辺に対する割合。窓は いつも写真・動画と同じ縦横比にして、写真を切らない
+const BAND_CHOICES = { ほそい: 0.05, ふつう: 0.08, ふとい: 0.12 };
+const WIN_Q = 250; // 窓の位置は 画像の幅・高さを250等分した目盛りで データに入れる
+// 外がわの大きさ。outerAspect が null なら「写真に合わせる」(窓のまわりに 同じ太さの帯)
+function outerSize(size, photoAspect, outerAspect, band) {
+  let A = outerAspect;
+  if (!A) {
+    const a = photoAspect >= 1 ? photoAspect : 1 / photoAspect;
+    const b = (band * size) / ((1 - 2 * band) * a + 2 * band), winL = size - 2 * b, winS = winL / a;
+    A = photoAspect >= 1 ? size / (winS + 2 * b) : (winS + 2 * b) / size;
+  }
+  return A >= 1 ? { W: size, H: Math.round(size / A) } : { W: Math.round(size * A), H: size };
+}
+// 帯の内がわに、写真の縦横比の窓を まんなかに置く(目盛りに そろえる)
+function placeWindow(W, H, bandPx, photoAspect) {
+  const aw = W - 2 * bandPx, ah = H - 2 * bandPx, s = Math.min(aw / photoAspect, ah);
+  const w = s * photoAspect, h = s, q = (v, m) => Math.round((v / m) * WIN_Q);
+  return { x0: q((W - w) / 2, W), y0: q((H - h) / 2, H), x1: q((W + w) / 2, W), y1: q((H + h) / 2, H) };
+}
+function windowPx(win, W, H) {
+  const x = Math.round((win.x0 / WIN_Q) * W), y = Math.round((win.y0 / WIN_Q) * H);
+  return { x, y, w: Math.round((win.x1 / WIN_Q) * W) - x, h: Math.round((win.y1 / WIN_Q) * H) - y };
+}
+const winBytes = (win) => [win.x0, win.y0, win.x1, win.y1];
+const validWin = (w) => w.x0 < w.x1 && w.y0 < w.y1 && w.x1 <= WIN_Q && w.y1 <= WIN_Q && w.x1 - w.x0 > 25 && w.y1 - w.y0 > 25;
+
 // --- 絵巻(emaki): 本物の絵巻から切り抜いた絵を、ちぎった和紙の帯に並べる ---
 // 絵1つに1バイト: 種類(8) × 回転(45°ずつ8方向) × 左右反転 × 大小。和紙の帯は 列の数×絵の大きさ で太さが決まり、
 // 入る範囲で いちばん細くなる並べ方を選ぶ
@@ -302,11 +329,7 @@ const EMAKI = {
   chojugiga: { dir: 'assets/chojugiga/' },
   hyakki: { dir: 'assets/hyakki/' },
 };
-const EDGE_CONFIGS = (() => {
-  const list = [];
-  for (const rows of [1, 2, 3]) for (let nx = 12; nx <= 24; nx += 2) list.push([rows, nx]);
-  return list.sort((a, b) => (a[1] > 20) - (b[1] > 20) || a[0] / a[1] - b[0] / b[1] || a[1] - b[1]);
-})();
+const EMAKI_NX = [12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 52, 56];
 const emakiSprites = {};
 function loadEmaki(key) {
   if (!emakiSprites[key]) {
@@ -318,21 +341,21 @@ function loadEmaki(key) {
 }
 // 位置のゆらぎ用。ブラウザによって結果が変わらないよう整数だけで計算する
 const hash01 = (a, b, k) => ((Math.imul(a * 73856093 ^ b * 19349663 ^ k * 83492791, 2654435761) >>> 0) % 10007) / 10007;
-function edgeLayout(W, H, rows, nx) {
-  const C = Math.max(W, H) / nx, rowH = C * 0.87, depth = rows * rowH + 0.3 * C;
-  const cells = [], deco = [];
+// データの絵は 外がわの帯の中だけに並べる(窓の位置に かかわらず 読める)
+function edgeLayout(W, H, bandPx, nx) {
+  const C = Math.max(W, H) / nx, rowH = C * 0.87, cells = [], rest = [];
   for (let r = 0; r * rowH < H + C; r++) for (let c = -1; c * C < W + C; c++) {
     const x = (c + (r % 2) * 0.5 + 0.25) * C + (hash01(r, c, 1) - 0.5) * 0.2 * C;
     const y = (r + 0.5) * rowH + 0.12 * C + (hash01(r, c, 2) - 0.5) * 0.2 * C;
     const e = Math.min(x, W - x, y, H - y);
-    if (e >= 0.45 * C && e <= depth - 0.5 * C) cells.push({ x, y, r, c });
-    else if ((e > depth - 0.5 * C && e < depth + 0.15 * C && hash01(r, c, 4) < 0.35) || (e < 0.45 * C && e > -0.4 * C)) deco.push({ x, y, r, c });
+    if (e >= 0.45 * C && e <= bandPx - 0.5 * C) cells.push({ x, y, r, c });
+    else rest.push({ x, y, r, c, e });
   }
-  return { C, depth, cells, deco };
+  return { C, cells, rest };
 }
-function emakiCode(W, H, rows, nx) {
-  const L = edgeLayout(W, H, rows, nx), n = Math.min(255, L.cells.length), nsym = Math.max(8, Math.ceil(n / 4));
-  return { L, n, nsym, cap: n - nsym - 1 };
+function emakiCode(W, H, bandPx, nx) {
+  const L = edgeLayout(W, H, bandPx, nx), n = Math.min(255, L.cells.length), nsym = Math.max(8, Math.ceil(n / 4));
+  return { L, n, nsym, cap: n - nsym - 5 };
 }
 function drawMotif(x, sprites, cx, cy, C, sym) {
   const img = sprites[sym >> 5], rot = (sym >> 2) & 7, mirror = (sym >> 1) & 1, big = sym & 1;
@@ -340,14 +363,14 @@ function drawMotif(x, sprites, cx, cy, C, sym) {
   x.save(); x.translate(cx, cy); x.rotate((rot * Math.PI) / 4); x.scale(mirror ? -s : s, s);
   x.drawImage(img, -img.width / 2, -img.height / 2); x.restore();
 }
-function drawTornPaper(x, W, H, depth, C, bg) {
-  // 内がわのふちを ゆるやかに破れた形にして、まっすぐな枠線に見せない
+// 窓のまわりを 和紙で おおう。窓のふちは ゆるやかに破れた形にして、まっすぐな枠線に見せない(破れ目は 窓に少しだけ かかる)
+function drawTornPaper(x, W, H, r, C, bg) {
   let wob = 0;
-  const pts = [], step = C * 0.18, j = () => { wob = wob * 0.6 + (Math.random() - 0.5) * 0.4; return depth + C * (0.15 + wob * 0.25 + Math.random() * 0.06); };
-  for (let px = depth; px <= W - depth; px += step) pts.push([px, j()]);
-  for (let py = depth; py <= H - depth; py += step) pts.push([W - j(), py]);
-  for (let px = W - depth; px >= depth; px -= step) pts.push([px, H - j()]);
-  for (let py = H - depth; py >= depth; py -= step) pts.push([j(), py]);
+  const pts = [], step = Math.max(4, C * 0.18), j = () => { wob = wob * 0.6 + (Math.random() - 0.5) * 0.4; return C * (0.03 + wob * 0.05 + Math.random() * 0.03); };
+  for (let px = r.x; px <= r.x + r.w; px += step) pts.push([px, r.y + j()]);
+  for (let py = r.y; py <= r.y + r.h; py += step) pts.push([r.x + r.w - j(), py]);
+  for (let px = r.x + r.w; px >= r.x; px -= step) pts.push([px, r.y + r.h - j()]);
+  for (let py = r.y + r.h; py >= r.y; py -= step) pts.push([r.x + j(), py]);
   x.save();
   x.beginPath(); x.rect(0, 0, W, H);
   pts.forEach(([px, py], i) => (i ? x.lineTo(px, py) : x.moveTo(px, py))); x.closePath();
@@ -355,21 +378,27 @@ function drawTornPaper(x, W, H, depth, C, bg) {
   x.fillStyle = bg; x.fill('evenodd');
   x.restore();
 }
-async function buildEmaki(text, designKey, aspect, size) {
+async function buildEmaki(text, designKey, W, H, bandPx, photoAspect) {
   const sprites = await loadEmaki(designKey), payload = await packText(text);
-  const W = aspect >= 1 ? size : Math.round(size * aspect), H = aspect >= 1 ? Math.round(size / aspect) : size;
-  for (const [rows, nx] of EDGE_CONFIGS) {
-    const { L, n, nsym, cap } = emakiCode(W, H, rows, nx);
-    if (payload.length > cap) continue;
-    const msg = [payload.length, ...payload];
+  const win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
+  // 絵は 入る範囲で いちばん大きく
+  for (const nx of EMAKI_NX) {
+    const { L, n, nsym, cap } = emakiCode(W, H, bandPx, nx);
+    if (L.cells.length < 16 || payload.length > cap) continue;
+    const msg = [...winBytes(win), payload.length, ...payload];
     while (msg.length < n - nsym) msg.push(0);
     const code = rsEncode(msg, nsym);
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
-    drawTornPaper(x, W, H, L.depth, L.C, DESIGNS[designKey].bg);
-    L.deco.forEach((d) => drawMotif(x, sprites, d.x, d.y, L.C, Math.floor(hash01(d.r, d.c, 3) * 256)));
+    drawTornPaper(x, W, H, r, L.C, DESIGNS[designKey].bg);
+    // 飾りの絵: 画面のはしで切れるもの、帯と窓のあいだの すきま、窓のふちに すこし かかるもの
+    const off = (p) => Math.max(r.x - p.x, 0, p.x - r.x - r.w) + Math.max(r.y - p.y, 0, p.y - r.y - r.h);
+    L.rest.forEach((d) => {
+      const g = off(d);
+      if ((d.e < 0.45 * L.C && d.e > -0.4 * L.C) || g > 0.55 * L.C || (g > 0 && hash01(d.r, d.c, 4) < 0.35)) drawMotif(x, sprites, d.x, d.y, L.C, Math.floor(hash01(d.r, d.c, 3) * 256));
+    });
     L.cells.forEach((cell, i) => drawMotif(x, sprites, cell.x, cell.y, L.C, (i < n ? code[i] : 0) ^ (maskVal(i) & 255)));
-    c.frameInfo = { kind: 'emaki', W, H, rows, nx, depth: L.depth, C: L.C, text };
+    c.frameInfo = { kind: 'emaki', W, H, win, text };
     return c;
   }
   throw new Error('too long');
@@ -414,9 +443,9 @@ function bestSym(f, tpl) {
 }
 async function readEmaki(img) {
   const W = img.width, H = img.height;
-  for (const [rows, nx] of EDGE_CONFIGS) {
-    const { L, n, nsym, cap } = emakiCode(W, H, rows, nx);
-    if (cap < 1) continue;
+  for (const band of Object.values(BAND_CHOICES)) for (const nx of EMAKI_NX) {
+    const { L, n, nsym, cap } = emakiCode(W, H, band * Math.min(W, H), nx);
+    if (L.cells.length < 16 || cap < 1) continue;
     const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * L.cells.length;
     const ax = atlas.getContext('2d', { willReadFrequently: true });
     ax.imageSmoothingQuality = 'high';
@@ -429,36 +458,38 @@ async function readEmaki(img) {
       if (probe.reduce((a, b) => a + b, 0) / probe.length < 0.6) continue;
       const code = feats.slice(0, n).map((f, i) => bestSym(f, tpl)[0] ^ (maskVal(i) & 255));
       try {
-        const [len, ...rest] = rsDecode(code, nsym);
-        if (len < 1 || len > cap) continue;
-        return { kind: 'emaki', W, H, rows, nx, depth: L.depth, C: L.C, text: await unpackText(rest.slice(0, len)) };
+        const [x0, y0, x1, y1, len, ...rest] = rsDecode(code, nsym), win = { x0, y0, x1, y1 };
+        if (!validWin(win) || len < 1 || len > cap) continue;
+        return { kind: 'emaki', W, H, win, text: await unpackText(rest.slice(0, len)) };
       } catch (e) {}
     }
   }
   return null;
 }
 
-async function buildFrame({ text, designKey, aspect, size = 1600 }) {
-  const d = DESIGNS[designKey];
-  if (d.kind === 'emaki') return buildEmaki(text, designKey, aspect, size);
-  const k = KINDS[d.kind];
+async function buildFrame({ text, designKey, photoAspect, outerAspect = null, band = BAND_CHOICES['ふつう'], size = 1600 }) {
+  const d = DESIGNS[designKey], { W: W0, H: H0 } = outerSize(size, photoAspect, outerAspect, band);
+  if (d.kind === 'emaki') return buildEmaki(text, designKey, W0, H0, band * Math.min(W0, H0), photoAspect);
+  const k = KINDS[d.kind], A = W0 / H0, target = band * Math.min(W0, H0);
   const payload = await packText(text);
-  for (const L of k.Ls) {
-    const { Wu, Hu } = frameGeom(L, aspect);
+  // 帯(k.band マス)の太さが 選んだ太さに いちばん近い マスの数から ためし、入らなければ マスを細かくする
+  const start = k.Ls.reduce((bi, L, i) => (Math.abs((k.band * size) / L - target) < Math.abs((k.band * size) / k.Ls[bi] - target) ? i : bi), 0);
+  for (const L of k.Ls.slice(start)) {
+    const { Wu, Hu } = frameGeom(L, A);
     const { slots, n, nsym, cap } = frameCode(d.kind, Wu, Hu);
-    if (payload.length > cap) continue;
-    const inset = k.band;
-    const msg = [inset, payload.length, ...payload];
+    if (payload.length + 3 > cap) continue;
+    const U = Math.max(4, Math.round(size / L)), W = Wu * U, H = Hu * U;
+    const win = placeWindow(W, H, k.band * U, photoAspect), r = windowPx(win, W, H);
+    const msg = [...winBytes(win), payload.length, ...payload];
     while (msg.length < n - nsym) msg.push(0);
     const syms = toSymbols(rsEncode(msg, nsym), slots.length, k.bits);
-    const U = Math.max(4, Math.round(size / L));
-    const c = document.createElement('canvas'); c.width = Wu * U; c.height = Hu * U;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
     if (d.kind === 'parade') drawParade(x, designKey, Wu, Hu, U, slots, syms);
     else if (d.kind === 'qr') drawQR(x, Wu, Hu, U, slots, syms);
     else drawStars(x, Wu, Hu, U, slots, syms);
-    x.clearRect(inset * U, inset * U, (Wu - 2 * inset) * U, (Hu - 2 * inset) * U);
-    c.frameInfo = { Wu, Hu, inset, text };
+    x.clearRect(r.x, r.y, r.w, r.h);
+    c.frameInfo = { Wu, Hu, win, text };
     return c;
   }
   throw new Error('too long');
@@ -469,11 +500,17 @@ async function readFrame(img) {
   const W = img.width, H = img.height;
   let px = null;
   const tryDecode = async (syms, fc, b, Wu, Hu) => {
-    try {
-      const [inset, len, ...rest] = rsDecode(fromSymbols(syms, fc.n, b), fc.nsym);
-      if (inset < 1 || 2 * inset > Math.min(Wu, Hu) - 2 || len < 1 || len > fc.cap) return null;
-      return { text: await unpackText(rest.slice(0, len)), Wu, Hu, inset };
-    } catch (e) { return null; }
+    let msg;
+    try { msg = rsDecode(fromSymbols(syms, fc.n, b), fc.nsym); } catch (e) { return null; }
+    const [x0, y0, x1, y1, len] = msg, win = { x0, y0, x1, y1 };
+    if (validWin(win) && len >= 1 && len <= fc.cap - 3) {
+      try { return { text: await unpackText(msg.slice(5, 5 + len)), Wu, Hu, win }; } catch (e) {}
+    }
+    // 以前の形(v1.7まで): [inset, 長さ, …]
+    const [inset, len0] = msg;
+    if (inset < 1 || 2 * inset > Math.min(Wu, Hu) - 2 || len0 < 1 || len0 > fc.cap) return null;
+    const q = (v, m) => Math.round((v / m) * WIN_Q);
+    try { return { text: await unpackText(msg.slice(2, 2 + len0)), Wu, Hu, win: { x0: q(inset, Wu), y0: q(inset, Hu), x1: q(Wu - inset, Wu), y1: q(Hu - inset, Hu) } }; } catch (e) { return null; }
   };
   for (const [kind, k] of Object.entries(KINDS)) for (const L of k.Ls) {
     const exact = W >= H ? (L * H) / W : (L * W) / H;
@@ -507,12 +544,7 @@ async function readFrame(img) {
 
 // 窓(写真・動画が入るところ)の位置。W×H はフレーム画像の大きさ
 function windowRect(info, W, H) {
-  if (info.kind === 'emaki') {
-    const k = W / info.W, m = Math.round((info.opaque ? info.depth + 0.45 * info.C : info.depth - 0.2 * info.C) * k);
-    return { x: m, y: m, w: W - 2 * m, h: H - 2 * m };
-  }
-  const uw = W / info.Wu, uh = H / info.Hu, x0 = Math.round(info.inset * uw), y0 = Math.round(info.inset * uh);
-  return { x: x0, y: y0, w: Math.round((info.Wu - info.inset) * uw) - x0, h: Math.round((info.Hu - info.inset) * uh) - y0 };
+  return windowPx(info.win, W, H);
 }
 // 窓いっぱいに写真・動画を描く。view = { zoom: 1〜, dx, dy }(dx・dy は窓の幅・高さに対する ずらし量)
 function drawMedia(x, media, mw, mh, r, view) {

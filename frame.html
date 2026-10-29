@@ -75,8 +75,10 @@
     <label class="btn" id="media-label">えらぶ<input type="file" accept="image/*,video/*" id="media-in" hidden></label>
     <div class="label">2. フレーム</div>
     <div class="choices" id="frame-modes"></div>
-    <div class="label">かたち</div>
+    <div class="label">そとがわの かたち</div>
     <div class="choices three" id="shapes"></div>
+    <div class="label">わくの ふとさ</div>
+    <div class="choices three" id="bands"></div>
     <div id="new-frame" style="display:flex;flex-direction:column;gap:10px">
       <textarea id="make-in" rows="3" spellcheck="false" placeholder="つたえたい ことば・URL（例: https://example.com/）"></textarea>
       <div class="choices" id="themes"></div>
@@ -123,6 +125,9 @@ let frameMode = 'new', design = 'chojugiga', savedFrame = null, shape = 'fit';
 // かたち: 写真・動画に あわせるか、フレームを含めた 縦横比を 決めるか(写真は 窓の中で 動かして合わせる)
 const SHAPES = { fit: ['しゃしんに あわせる', 0], '1:1': ['1:1', 1], '4:5': ['4:5', 4 / 5], '3:4': ['3:4', 3 / 4], '9:16': ['9:16', 9 / 16], '16:9': ['16:9', 16 / 9] };
 choiceGroup('shapes', Object.entries(SHAPES).map(([k, [name]]) => [k, name]), shape, (k) => { shape = k; });
+// わくの ふとさ: データは この太さの帯に入る。絵の大きさは 入る範囲で いちばん大きくなるよう 自動で決まる
+let bandKey = 'ふつう';
+choiceGroup('bands', Object.keys(BAND_CHOICES).map((k) => [k, k]), bandKey, (k) => { bandKey = k; });
 let frameImg = null, frameInfo = null, view = { zoom: 1, dx: 0, dy: 0 };
 // デザインの見本アイコン
 function designIcon(key) {
@@ -172,7 +177,7 @@ async function doMake() {
     const text = $('make-in').value;
     if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
     // 写真・動画の縦横比に あわせて フレームを作る
-    try { frameImg = await buildFrame({ text, designKey: design, aspect: shape === 'fit' ? mediaW / mediaH : SHAPES[shape][1], size: isVideo ? 1280 : 1600 }); }
+    try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band: BAND_CHOICES[bandKey], size: isVideo ? 1280 : 1600 }); }
     catch (err) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
     frameInfo = frameImg.frameInfo;
   } else {
