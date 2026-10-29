@@ -94,6 +94,7 @@
       <button class="primary" id="mic-btn" onclick="toggleMic()">マイクで きく</button>
       <label class="btn">ファイルを よむ<input type="file" id="file-in" hidden></label>
     </div>
+    <audio id="file-audio" class="hidden" controls style="width:100%"></audio>
     <div class="msg" id="listen-msg"></div>
     <div id="listen-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="label">きょくの なかみ</div>
@@ -509,6 +510,10 @@ $('file-in').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
   stopMic();
+  // 読みこんだ きょくを その場で きけるように する
+  if ($('file-audio').src) URL.revokeObjectURL($('file-audio').src);
+  $('file-audio').src = URL.createObjectURL(file);
+  $('file-audio').classList.remove('hidden');
   $('listen-state').textContent = 'よみとっています…'; $('listen-msg').textContent = '';
   let r = { status: 'fail' };
   try {
