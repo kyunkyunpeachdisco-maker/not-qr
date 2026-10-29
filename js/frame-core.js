@@ -61,6 +61,7 @@ const SPRITES = {
 const DESIGNS = {
   chojugiga: { kind: 'emaki', name: '鳥獣戯画', bg: '#f4eedf' },
   hyakki: { kind: 'emaki', name: '百鬼夜行', bg: '#efe5d0' },
+  custom: { kind: 'custom', name: 'じぶんの そざい', bg: '#f7f4ec' },
   yokai: { kind: 'parade', name: 'おばけ', bg: '#211c44', corner: 'moon' },
   birthday: { kind: 'parade', name: 'たんじょうび', bg: '#ffe4ef', corner: 'star' },
   eto: { kind: 'parade', name: 'えと', bg: '#fbefd5', corner: 'sun' },
@@ -441,22 +442,174 @@ function bestSym(f, tpl) {
   for (let s = 0; s < 256; s++) { let sc = 0; const t = tpl[s]; for (let k = 0; k < f.length; k++) sc += f[k] * t[k]; if (sc > bestScore) { bestScore = sc; best = s; } }
   return [best, bestScore];
 }
+// 縮める前の 元の大きさの候補(作るときは 長い辺1600px、動画は1280px)。縮めると 幅・高さが整数に丸められ、
+// 帯の境目にある絵の 内か外かの判定が ずれることがあるので、元の大きさで 並べ方を計算してから 縮めた画像の上で読む
+function* originalSizes(W, H) {
+  yield [W, H];
+  const long = Math.max(W, H);
+  for (const S of [1600, 1280]) {
+    if (long === S) continue;
+    const k = S / long;
+    for (const d of [0, -1, 1, -2, 2]) yield W >= H ? [S, Math.round(H * k) + d] : [Math.round(W * k) + d, S];
+  }
+}
+// cells の位置(元の大きさの座標)を 倍率 s で 縮めた画像から 切りだして 特徴にする
+function cellFeatures(img, cells, C, s) {
+  const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * cells.length;
+  const ax = atlas.getContext('2d', { willReadFrequently: true });
+  ax.imageSmoothingQuality = 'high';
+  cells.forEach((cell, i) => ax.drawImage(img, (cell.x - C / 2) * s, (cell.y - C / 2) * s, C * s, C * s, 0, i * FEAT, FEAT, FEAT));
+  return features(ax.getImageData(0, 0, FEAT, FEAT * cells.length).data, cells.length);
+}
 async function readEmaki(img) {
   const W = img.width, H = img.height;
   for (const band of Object.values(BAND_CHOICES)) for (const nx of EMAKI_NX) {
-    const { L, n, nsym, cap } = emakiCode(W, H, band * Math.min(W, H), nx);
-    if (L.cells.length < 16 || cap < 1) continue;
-    const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * L.cells.length;
-    const ax = atlas.getContext('2d', { willReadFrequently: true });
-    ax.imageSmoothingQuality = 'high';
-    L.cells.forEach((cell, i) => ax.drawImage(img, cell.x - L.C / 2, cell.y - L.C / 2, L.C, L.C, 0, i * FEAT, FEAT, FEAT));
-    const feats = features(ax.getImageData(0, 0, FEAT, FEAT * L.cells.length).data, L.cells.length);
+    const probeL = emakiCode(W, H, band * Math.min(W, H), nx).L;
+    if (probeL.cells.length < 16) continue;
+    // まず16個だけ くらべて、似ていなければ この並べ方・この絵巻ではないとみなして とばす
+    const probeF = cellFeatures(img, probeL.cells.slice(0, 16), probeL.C, 1);
     for (const key of Object.keys(EMAKI)) {
       const tpl = await getEmakiTemplates(key);
-      // まず16個だけ くらべて、似ていなければ この並べ方・この絵巻ではないとみなして とばす
-      const probe = feats.slice(0, 16).map((f) => bestSym(f, tpl)[1]);
-      if (probe.reduce((a, b) => a + b, 0) / probe.length < 0.6) continue;
-      const code = feats.slice(0, n).map((f, i) => bestSym(f, tpl)[0] ^ (maskVal(i) & 255));
+      if (probeF.map((f) => bestSym(f, tpl)[1]).reduce((a, b) => a + b, 0) / 16 < 0.75) continue;
+      for (const [W0, H0] of originalSizes(W, H)) {
+        const { L, n, nsym, cap } = emakiCode(W0, H0, band * Math.min(W0, H0), nx);
+        if (cap < 1) continue;
+        const code = cellFeatures(img, L.cells.slice(0, n), L.C, W / W0).map((f, i) => bestSym(f, tpl)[0] ^ (maskVal(i) & 255));
+        try {
+          const [x0, y0, x1, y1, len, ...rest] = rsDecode(code, nsym), win = { x0, y0, x1, y1 };
+          if (!validWin(win) || len < 1 || len > cap) continue;
+          return { kind: 'emaki', W, H, win, text: await unpackText(rest.slice(0, len)) };
+        } catch (e) {}
+      }
+    }
+  }
+  return null;
+}
+
+// --- じぶんの素材(custom): ユーザーが用意した 8枚 か 16枚の絵で 絵巻と同じように並べる ---
+// 帯の はじめの N マスに 素材を 正位置で1枚ずつ置き(見本)、読みとるときは その見本から 照らし合わせ用の絵を作る。
+// 8枚: 種類(8)×向き(8)×左右反転×大小、16枚: 種類(16)×向き(8)×左右反転。どちらも 絵1つに1バイト
+const CUSTOM_BG = '#f7f4ec';
+const CUSTOM_COUNTS = [8, 16];
+function symParts(sym, count) {
+  return count === 16
+    ? { t: sym >> 4, rot: (sym >> 1) & 7, mirror: sym & 1, big: 1 }
+    : { t: sym >> 5, rot: (sym >> 2) & 7, mirror: (sym >> 1) & 1, big: sym & 1 };
+}
+const uprightSym = (t, count) => (count === 16 ? t << 4 : (t << 5) | 1);
+// 絵1つを描く。img は 素材そのもの(作るとき) か、見本を切りだした四角(読むとき)
+function drawCustomMotif(x, imgs, cx, cy, C, sym, fromKey) {
+  const { t, rot, mirror, big } = symParts(sym, imgs.length), img = imgs[t];
+  // 見本は 大きい絵として描かれているので、切りだした四角(1マスぶん)を そのまま倍率に使う
+  const s = fromKey ? (big ? 1 : 0.55 / 0.82) * (C / img.width) : (C * (big ? 0.82 : 0.55)) / Math.max(img.width, img.height);
+  x.save(); x.translate(cx, cy); x.rotate((rot * Math.PI) / 4); x.scale(mirror ? -s : s, s);
+  x.drawImage(img, -img.width / 2, -img.height / 2); x.restore();
+}
+// アップロードされた画像を 素材にする: 背景が透明でなければ ふちの色を抜き、余白を切って 256px以内にする
+function prepareCustomSprite(img) {
+  const W0 = img.naturalWidth || img.width, H0 = img.naturalHeight || img.height, s = Math.min(1, 512 / Math.max(W0, H0));
+  const W = Math.max(1, Math.round(W0 * s)), H = Math.max(1, Math.round(H0 * s));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0, W, H);
+  const d = x.getImageData(0, 0, W, H), px = d.data;
+  const corners = [0, W - 1, (H - 1) * W, H * W - 1];
+  if (corners.every((i) => px[i * 4 + 3] > 250)) {
+    const bg = [0, 1, 2].map((k) => corners.reduce((a, i) => a + px[i * 4 + k], 0) / 4);
+    const near = (i) => Math.hypot(px[i * 4] - bg[0], px[i * 4 + 1] - bg[1], px[i * 4 + 2] - bg[2]) < 40;
+    const seen = new Uint8Array(W * H), st = [];
+    for (let i = 0; i < W; i++) st.push(i, (H - 1) * W + i);
+    for (let j = 0; j < H; j++) st.push(j * W, j * W + W - 1);
+    while (st.length) { const i = st.pop(); if (seen[i] || !near(i)) continue; seen[i] = 1; px[i * 4 + 3] = 0; const xx = i % W, yy = (i / W) | 0; if (xx > 0) st.push(i - 1); if (xx < W - 1) st.push(i + 1); if (yy > 0) st.push(i - W); if (yy < H - 1) st.push(i + W); }
+    x.putImageData(d, 0, 0);
+  }
+  let minX = W, minY = H, maxX = -1, maxY = -1;
+  for (let i = 0; i < W * H; i++) if (px[i * 4 + 3] > 20) { const xx = i % W, yy = (i / W) | 0; if (xx < minX) minX = xx; if (xx > maxX) maxX = xx; if (yy < minY) minY = yy; if (yy > maxY) maxY = yy; }
+  if (maxX < 0) return c;
+  const bw = maxX - minX + 1, bh = maxY - minY + 1, k = Math.min(1, 256 / Math.max(bw, bh));
+  const o = document.createElement('canvas'); o.width = Math.max(1, Math.round(bw * k)); o.height = Math.max(1, Math.round(bh * k));
+  const ox = o.getContext('2d'); ox.imageSmoothingQuality = 'high'; ox.drawImage(c, minX, minY, bw, bh, 0, 0, o.width, o.height);
+  return o;
+}
+function customCode(W, H, bandPx, nx, count) {
+  const L = edgeLayout(W, H, bandPx, nx), n = Math.min(255, L.cells.length - count), nsym = Math.max(8, Math.ceil(n / 4));
+  return { L, n, nsym, cap: n - nsym - 5 };
+}
+async function buildCustom(text, sprites, W, H, bandPx, photoAspect) {
+  const count = sprites.length, payload = await packText(text);
+  const win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
+  for (const nx of EMAKI_NX) {
+    const { L, n, nsym, cap } = customCode(W, H, bandPx, nx, count);
+    if (n < 16 || payload.length > cap) continue;
+    const msg = [...winBytes(win), payload.length, ...payload];
+    while (msg.length < n - nsym) msg.push(0);
+    const code = rsEncode(msg, nsym);
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    drawTornPaper(x, W, H, r, L.C, CUSTOM_BG);
+    const off = (p) => Math.max(r.x - p.x, 0, p.x - r.x - r.w) + Math.max(r.y - p.y, 0, p.y - r.y - r.h);
+    L.rest.forEach((d) => {
+      const g = off(d);
+      if ((d.e < 0.45 * L.C && d.e > -0.4 * L.C) || g > 0.55 * L.C || (g > 0 && hash01(d.r, d.c, 4) < 0.35)) drawCustomMotif(x, sprites, d.x, d.y, L.C, Math.floor(hash01(d.r, d.c, 3) * 256));
+    });
+    L.cells.forEach((cell, i) => {
+      if (i < count) return;
+      drawCustomMotif(x, sprites, cell.x, cell.y, L.C, (i - count < n ? code[i - count] : 0) ^ (maskVal(i - count) & 255));
+    });
+    // 見本は 最後に、紙の色の丸を敷いてから描く(となりの絵が 見本に かぶらないように)
+    L.cells.slice(0, count).forEach((cell, i) => {
+      x.fillStyle = CUSTOM_BG; x.beginPath(); x.arc(cell.x, cell.y, L.C * 0.52, 0, Math.PI * 2); x.fill();
+      drawCustomMotif(x, sprites, cell.x, cell.y, L.C, uprightSym(i, count));
+    });
+    c.frameInfo = { kind: 'emaki', W, H, win, text };
+    return c;
+  }
+  throw new Error('too long');
+}
+async function readCustom(img) {
+  const W = img.width, H = img.height;
+  const full = document.createElement('canvas'); full.width = W; full.height = H;
+  const fx = full.getContext('2d', { willReadFrequently: true }); fx.drawImage(img, 0, 0);
+  const px = fx.getImageData(0, 0, W, H).data, bg = [0xf7, 0xf4, 0xec];
+  // 見本のまわり(紙の色の丸)が 紙の色に 見えるか。見えなければ その並べ方ではない
+  const ringOk = (cell, C) => {
+    let k = 0, bad = 0;
+    for (let a = 0; a < 24; a++) {
+      for (const rr of [0.46, 0.5]) {
+        const xx = Math.round(cell.x + Math.cos((a * Math.PI) / 12) * C * rr), yy = Math.round(cell.y + Math.sin((a * Math.PI) / 12) * C * rr);
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+        const i = (yy * W + xx) * 4;
+        if (Math.hypot(px[i] - bg[0], px[i + 1] - bg[1], px[i + 2] - bg[2]) > 45) bad++;
+        k++;
+      }
+    }
+    // 見本の絵の角が 丸に少し かかることは あるので、2割までは 紙の色でなくても よい
+    return k > 16 && bad <= k * 0.2;
+  };
+  for (const count of CUSTOM_COUNTS) for (const band of Object.values(BAND_CHOICES)) for (const nx of EMAKI_NX) {
+    const probe = customCode(W, H, band * Math.min(W, H), nx, count);
+    if (probe.n < 16) continue;
+    if (!probe.L.cells.slice(0, count).every((cell) => ringOk(cell, probe.L.C))) continue;
+    const C = Math.round(probe.L.C), keys = probe.L.cells.slice(0, count).map((cell) => {
+      const k = document.createElement('canvas'); k.width = C; k.height = C;
+      k.getContext('2d').drawImage(img, cell.x - probe.L.C / 2, cell.y - probe.L.C / 2, probe.L.C, probe.L.C, 0, 0, C, C);
+      return k;
+    });
+    // 見本を 回したり反転したりして 256通りの 照らし合わせ用の絵を作る
+    const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * 256;
+    const ax = atlas.getContext('2d', { willReadFrequently: true });
+    ax.fillStyle = CUSTOM_BG; ax.fillRect(0, 0, FEAT, FEAT * 256); ax.imageSmoothingQuality = 'high';
+    for (let sym = 0; sym < 256; sym++) {
+      ax.save(); ax.beginPath(); ax.rect(0, sym * FEAT, FEAT, FEAT); ax.clip();
+      drawCustomMotif(ax, keys, FEAT / 2, sym * FEAT + FEAT / 2, FEAT, sym, true);
+      ax.restore();
+    }
+    const tpl = features(ax.getImageData(0, 0, FEAT, FEAT * 256).data, 256);
+    const pf = cellFeatures(img, probe.L.cells.slice(count, count + 16), probe.L.C, 1);
+    if (pf.map((f) => bestSym(f, tpl)[1]).reduce((a, b) => a + b, 0) / 16 < 0.75) continue;
+    for (const [W0, H0] of originalSizes(W, H)) {
+      const { L, n, nsym, cap } = customCode(W0, H0, band * Math.min(W0, H0), nx, count);
+      if (n < 16 || cap < 1) continue;
+      const code = cellFeatures(img, L.cells.slice(count, count + n), L.C, W / W0).map((f, i) => bestSym(f, tpl)[0] ^ (maskVal(i) & 255));
       try {
         const [x0, y0, x1, y1, len, ...rest] = rsDecode(code, nsym), win = { x0, y0, x1, y1 };
         if (!validWin(win) || len < 1 || len > cap) continue;
@@ -467,9 +620,10 @@ async function readEmaki(img) {
   return null;
 }
 
-async function buildFrame({ text, designKey, photoAspect, outerAspect = null, band = BAND_CHOICES['ふつう'], size = 1600 }) {
+async function buildFrame({ text, designKey, photoAspect, outerAspect = null, band = BAND_CHOICES['ふつう'], size = 1600, sprites = null }) {
   const d = DESIGNS[designKey], { W: W0, H: H0 } = outerSize(size, photoAspect, outerAspect, band);
   if (d.kind === 'emaki') return buildEmaki(text, designKey, W0, H0, band * Math.min(W0, H0), photoAspect);
+  if (d.kind === 'custom') return buildCustom(text, sprites, W0, H0, band * Math.min(W0, H0), photoAspect);
   const k = KINDS[d.kind], A = W0 / H0, target = band * Math.min(W0, H0);
   const payload = await packText(text);
   // 帯(k.band マス)の太さが 選んだ太さに いちばん近い マスの数から ためし、入らなければ マスを細かくする
@@ -539,7 +693,7 @@ async function readFrame(img) {
       }
     }
   }
-  return readEmaki(img);
+  return (await readCustom(img)) || readEmaki(img);
 }
 
 // 窓(写真・動画が入るところ)の位置。W×H はフレーム画像の大きさ

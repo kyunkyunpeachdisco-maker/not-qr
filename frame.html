@@ -83,6 +83,11 @@
       <textarea id="make-in" rows="3" spellcheck="false" placeholder="つたえたい ことば・URL（例: https://example.com/）"></textarea>
       <div class="choices" id="themes"></div>
       <div class="info hidden" id="video-note">どうがは 圧縮で 画質が落ちやすいので、QR風が いちばん 読みとりやすいです。</div>
+      <div id="custom-panel" class="hidden" style="display:flex;flex-direction:column;gap:8px">
+        <label class="btn" id="custom-label">そざいを えらぶ（8まい か 16まい）<input type="file" accept="image/png,image/jpeg,image/webp" multiple id="custom-in" hidden></label>
+        <div id="custom-thumbs" style="display:grid;grid-template-columns:repeat(8,1fr);gap:4px"></div>
+        <div class="info">・8まい か 16まい（PNG・JPEG・WebP）<br>・1まいずつ 形や色が はっきり ちがう絵に（似ている絵が あると 読みまちがえます）<br>・背景は 透明か 無地（無地なら 自動で 抜きます）。256px くらい以上<br>・左上の はじめの マスに、そざいが 正しい向きで 1まいずつ 「見本」として ならびます。読みとるときは この見本と くらべます</div>
+      </div>
     </div>
     <div id="saved-frame" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <label class="btn" id="frame-label">フレームを えらぶ<input type="file" accept="image/*" id="frame-in" hidden></label>
@@ -134,6 +139,7 @@ function designIcon(key) {
   const c = document.createElement('canvas'); c.width = c.height = 48;
   const x = c.getContext('2d'), d = DESIGNS[key];
   if (d.kind === 'emaki') { x.fillStyle = d.bg; x.fillRect(0, 0, 48, 48); return `${EMAKI[key].dir}1.png`; }
+  if (d.kind === 'custom') { x.fillStyle = d.bg; x.fillRect(0, 0, 48, 48); x.fillStyle = '#5d4037'; x.font = 'bold 34px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('＋', 24, 26); return c.toDataURL(); }
   if (d.kind === 'parade') { x.fillStyle = d.bg; x.fillRect(0, 0, 48, 48); drawTile(x, key, 0, false, 0, 0, 48); }
   else if (d.kind === 'qr') { x.fillStyle = '#fff'; x.fillRect(0, 0, 48, 48); x.fillStyle = '#111'; [[2, 2], [28, 2], [2, 28]].forEach(([a, b]) => { x.fillRect(a, b, 18, 18); x.fillStyle = '#fff'; x.fillRect(a + 5, b + 5, 8, 8); x.fillStyle = '#111'; }); for (let i = 0; i < 12; i++) if ((i * 7) % 3) x.fillRect(26 + (i % 4) * 5, 26 + Math.floor(i / 4) * 5, 4, 4); }
   else { x.fillStyle = '#0a1030'; x.fillRect(0, 0, 48, 48); drawStar(x, 30, 18, 6, '#fff6c8'); drawStar(x, 14, 34, 4, '#d6e4ff'); }
@@ -141,9 +147,21 @@ function designIcon(key) {
 }
 function updateDesigns() {
   $('video-note').classList.toggle('hidden', !isVideo);
-  choiceGroup('themes', Object.entries(DESIGNS).map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" style="background:${d.kind === 'emaki' ? d.bg : 'none'};object-fit:contain" alt="">${d.name}`]), design, (k) => { design = k; });
+  choiceGroup('themes', Object.entries(DESIGNS).map(([k, d]) => [k, `<img class="swatch" src="${designIcon(k)}" style="background:${d.kind === 'emaki' ? d.bg : 'none'};object-fit:contain" alt="">${d.name}`]), design, (k) => { design = k; $('custom-panel').classList.toggle('hidden', k !== 'custom'); });
+  $('custom-panel').classList.toggle('hidden', design !== 'custom');
 }
 updateDesigns();
+// じぶんの そざい: えらんだ画像を 下ごしらえ(背景を抜く・余白を切る)して ならべて見せる
+let customSprites = [];
+$('custom-in').addEventListener('change', async (e) => {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  try { customSprites = (await Promise.all(files.map(loadImage))).map(prepareCustomSprite); }
+  catch (err) { customSprites = []; $('make-msg').textContent = 'ひらけない画像が あります'; return; }
+  $('custom-thumbs').replaceChildren(...customSprites.map((c) => { const i = document.createElement('img'); i.src = c.toDataURL(); i.style.cssText = 'width:100%;aspect-ratio:1;object-fit:contain;background:#f7f4ec;border-radius:3px'; return i; }));
+  $('custom-label').firstChild.textContent = `そざい：${customSprites.length}まい（えらびなおす）`;
+  $('make-msg').textContent = [8, 16].includes(customSprites.length) ? '' : `そざいは 8まい か 16まい えらんでください（いま ${customSprites.length}まい）`;
+});
 choiceGroup('frame-modes', [['new', 'あたらしく つくる'], ['saved', 'ほぞんした フレーム']], frameMode, (k) => {
   frameMode = k;
   $('new-frame').classList.toggle('hidden', k !== 'new');
@@ -177,9 +195,11 @@ async function doMake() {
     const text = $('make-in').value;
     if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
     // 写真・動画の縦横比に あわせて フレームを作る
-    try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band: BAND_CHOICES[bandKey], size: isVideo ? 1280 : 1600 }); }
+    if (design === 'custom' && ![8, 16].includes(customSprites.length)) { $('make-msg').textContent = 'じぶんの そざいを 8まい か 16まい えらんでください'; return; }
+    try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band: BAND_CHOICES[bandKey], size: isVideo ? 1280 : 1600, sprites: customSprites }); }
     catch (err) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
     frameInfo = frameImg.frameInfo;
+    if (design === 'custom') checkReadable();
   } else {
     if (!savedFrame) { $('make-msg').textContent = 'フレームを えらんでください'; return; }
     const info = await readFrame(savedFrame);
@@ -193,6 +213,19 @@ async function doMake() {
   $('save-frame-btn').classList.toggle('hidden', frameMode !== 'new');
   $('make-result').classList.remove('hidden');
   $('preview').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+async function checkReadable() {
+  const msg = $('make-msg'), mine = frameImg;
+  msg.style.color = '#b6b6d8'; msg.textContent = 'よみとれるか たしかめています…';
+  const c = document.createElement('canvas'); c.width = Math.round(mine.width * 0.75); c.height = Math.round(mine.height * 0.75);
+  const x = c.getContext('2d'), full = document.createElement('canvas'); full.width = mine.width; full.height = mine.height;
+  composite(full.getContext('2d'), mine, frameInfo, media, mediaW, mediaH, view);
+  x.drawImage(full, 0, 0, c.width, c.height);
+  const img = await loadImage(URL.createObjectURL(await toBlob(c, 'image/jpeg', 0.8)));
+  const r = await readFrame(img);
+  if (frameImg !== mine) return;
+  msg.style.color = r ? '#7ad17a' : '';
+  msg.textContent = r ? '✓ よみとれることを たしかめました' : 'この そざいだと 読みとりにくいようです。似ている絵を ちがう絵に かえるか、わくを ふとくしてみてください';
 }
 // ゆびで写真を動かす・バーやホイールで大きさを変える
 let drag = null;
