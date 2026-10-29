@@ -77,8 +77,8 @@
       <div class="win jumon" id="make-out"></div>
       <div class="info" id="make-info"></div>
       <div class="actions">
-        <button onclick="copyText(lastJumon, 'じゅもんを コピーしました')">じゅもんを コピー</button>
-        <button onclick="copyText(shareText(lastJumon), 'リンクを コピーしました')">リンクを コピー</button>
+        <button onclick="copyWithFeedback(this, lastJumon)">じゅもんを コピー</button>
+        <button onclick="copyWithFeedback(this, shareText(lastJumon))">リンクを コピー</button>
         <button class="wide" onclick="saveImage()">がぞうで ほぞん</button>
       </div>
     </div>
@@ -206,15 +206,22 @@ async function doRead() {
   $('read-result').classList.toggle('hidden', !!r.error);
   if (r.error) return;
   $('read-out').textContent = r.text;
-  $('read-copy').onclick = () => copyText(r.text, 'なかみを コピーしました');
+  $('read-copy').onclick = (e) => copyWithFeedback(e.currentTarget, r.text);
   showDestination(r.text, 'read-link', 'read-dest');
 }
 
-async function copyText(s, done) {
-  const msg = $('pane-make').classList.contains('hidden') ? $('read-msg') : $('make-msg');
-  try { await navigator.clipboard.writeText(s); msg.style.color = '#7ad17a'; msg.textContent = done; }
-  catch (e) { msg.style.color = ''; msg.textContent = 'コピーできませんでした。長おしで えらんで コピーしてください'; }
-  setTimeout(() => { msg.style.color = ''; if (msg.textContent === done) msg.textContent = ''; }, 2000);
+// コピーして、押したボタンの文字を しばらく「✓ コピーしました」にする(メッセージ欄は スクロールで見えないことがあるため)
+async function copyWithFeedback(btn, s) {
+  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  let ok = true;
+  try { await navigator.clipboard.writeText(s); }
+  catch (e) {
+    // クリップボードAPIが使えないときの予備
+    const t = document.createElement('textarea'); t.value = s; t.style.position = 'fixed'; t.style.opacity = '0';
+    document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove();
+  }
+  btn.textContent = ok ? '✓ コピーしました' : 'コピーできませんでした';
+  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = label; }, 1800);
 }
 
 // 画像のじゅもんは 決まったマス目に1文字ずつ置く(画像から読みとるときも同じ位置を見る)

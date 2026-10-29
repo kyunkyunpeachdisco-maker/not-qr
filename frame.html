@@ -46,6 +46,7 @@
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .choices.three { grid-template-columns: 1fr 1fr 1fr; }
+  #shapes button:first-child { grid-column: 1 / -1; }
   .choices button { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 6px; min-height: 46px; text-align: center; }
   .choices button::before { display: none; }
   .choices button.on { border-color: #ffd23b; color: #ffd23b; }
@@ -76,6 +77,8 @@
     <label class="btn" id="media-label">えらぶ<input type="file" accept="image/*,video/*" id="media-in" hidden></label>
     <div class="label">2. フレーム</div>
     <div class="choices" id="frame-modes"></div>
+    <div class="label">かたち</div>
+    <div class="choices three" id="shapes"></div>
     <div id="new-frame" style="display:flex;flex-direction:column;gap:10px">
       <textarea id="make-in" rows="3" spellcheck="false" placeholder="つたえたい ことば・URL（例: https://example.com/）"></textarea>
       <div class="choices" id="themes"></div>
@@ -848,9 +851,25 @@ async function saveBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+// コピーして、押したボタンの文字を しばらく「✓ コピーしました」にする(メッセージ欄は スクロールで見えないことがあるため)
+async function copyWithFeedback(btn, s) {
+  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  let ok = true;
+  try { await navigator.clipboard.writeText(s); }
+  catch (e) {
+    // クリップボードAPIが使えないときの予備
+    const t = document.createElement('textarea'); t.value = s; t.style.position = 'fixed'; t.style.opacity = '0';
+    document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove();
+  }
+  btn.textContent = ok ? '✓ コピーしました' : 'コピーできませんでした';
+  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = label; }, 1800);
+}
 // ===== つくる =====
 let media = null, isVideo = false, mediaW = 0, mediaH = 0;
-let frameMode = 'new', design = 'chojugiga', savedFrame = null;
+let frameMode = 'new', design = 'chojugiga', savedFrame = null, shape = 'fit';
+// かたち: 写真・動画に あわせるか、フレームを含めた 縦横比を 決めるか(写真は 窓の中で 動かして合わせる)
+const SHAPES = { fit: ['しゃしんに あわせる', 0], '1:1': ['1:1', 1], '4:5': ['4:5', 4 / 5], '3:4': ['3:4', 3 / 4], '9:16': ['9:16', 9 / 16], '16:9': ['16:9', 16 / 9] };
+choiceGroup('shapes', Object.entries(SHAPES).map(([k, [name]]) => [k, name]), shape, (k) => { shape = k; });
 let frameImg = null, frameInfo = null, view = { zoom: 1, dx: 0, dy: 0 };
 // デザインの見本アイコン
 function designIcon(key) {
@@ -900,7 +919,7 @@ async function doMake() {
     const text = $('make-in').value;
     if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
     // 写真・動画の縦横比に あわせて フレームを作る
-    try { frameImg = await buildFrame({ text, designKey: design, aspect: mediaW / mediaH, size: isVideo ? 1280 : 1600 }); }
+    try { frameImg = await buildFrame({ text, designKey: design, aspect: shape === 'fit' ? mediaW / mediaH : SHAPES[shape][1], size: isVideo ? 1280 : 1600 }); }
     catch (err) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
     frameInfo = frameImg.frameInfo;
   } else {
@@ -1010,7 +1029,7 @@ $('read-in').addEventListener('change', async (e) => {
   if (!info) return;
   const text = info.text;
   $('read-out').textContent = text;
-  $('read-copy').onclick = () => navigator.clipboard.writeText(text).catch(() => {});
+  $('read-copy').onclick = (e) => copyWithFeedback(e.currentTarget, text);
   showDestination(text, 'read-link', 'read-dest');
   $('read-result').classList.remove('hidden');
 });

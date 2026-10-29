@@ -483,6 +483,19 @@ function showDestination(text, linkId, destId) {
   dest.style.color = s.name ? '#7ad17a' : '#ffb46a';
   link.onclick = s.name ? null : (e) => { if (!confirm(`${s.host} を ひらきます。よろしいですか？`)) e.preventDefault(); };
 }
+// コピーして、押したボタンの文字を しばらく「✓ コピーしました」にする(メッセージ欄は スクロールで見えないことがあるため)
+async function copyWithFeedback(btn, s) {
+  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  let ok = true;
+  try { await navigator.clipboard.writeText(s); }
+  catch (e) {
+    // クリップボードAPIが使えないときの予備
+    const t = document.createElement('textarea'); t.value = s; t.style.position = 'fixed'; t.style.opacity = '0';
+    document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove();
+  }
+  btn.textContent = ok ? '✓ コピーしました' : 'コピーできませんでした';
+  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = label; }, 1800);
+}
 function wavBlob(buf) {
   const d = buf.getChannelData(0), sr = buf.sampleRate, ab = new ArrayBuffer(44 + d.length * 2), v = new DataView(ab);
   const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
@@ -530,7 +543,7 @@ function showResult(r) {
   $('listen-result').classList.toggle('hidden', r.status !== 'done');
   if (r.status !== 'done') return;
   $('listen-out').textContent = r.text;
-  $('listen-copy').onclick = () => navigator.clipboard.writeText(r.text).catch(() => {});
+  $('listen-copy').onclick = (e) => copyWithFeedback(e.currentTarget, r.text);
   showDestination(r.text, 'listen-link', 'listen-dest');
 }
 function stopMic(msg) {
