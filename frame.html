@@ -158,7 +158,7 @@ $('custom-in').addEventListener('change', async (e) => {
   if (!files.length) return;
   try { customSprites = (await Promise.all(files.map(loadImage))).map(prepareCustomSprite); }
   catch (err) { customSprites = []; $('make-msg').textContent = 'ひらけない画像が あります'; return; }
-  $('custom-thumbs').replaceChildren(...customSprites.map((c) => { const i = document.createElement('img'); i.src = c.toDataURL(); i.style.cssText = 'width:100%;aspect-ratio:1;object-fit:contain;background:#f7f4ec;border-radius:3px'; return i; }));
+  $('custom-thumbs').replaceChildren(...customSprites.map((c) => { const i = document.createElement('img'); i.src = c.toDataURL(); i.style.cssText = 'width:100%;aspect-ratio:1;object-fit:contain;background:#e4ecf6;border-radius:3px'; return i; }));
   $('custom-label').firstChild.textContent = `そざい：${customSprites.length}まい（えらびなおす）`;
   $('make-msg').textContent = [8, 16].includes(customSprites.length) ? '' : `そざいは 8まい か 16まい えらんでください（いま ${customSprites.length}まい）`;
 });
@@ -196,10 +196,24 @@ async function doMake() {
     if (!text.trim()) { $('make-msg').textContent = 'ことばを いれてください'; return; }
     // 写真・動画の縦横比に あわせて フレームを作る
     if (design === 'custom' && ![8, 16].includes(customSprites.length)) { $('make-msg').textContent = 'じぶんの そざいを 8まい か 16まい えらんでください'; return; }
-    try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band: BAND_CHOICES[bandKey], size: isVideo ? 1280 : 1600, sprites: customSprites }); }
-    catch (err) { $('make-msg').textContent = 'ながすぎて フレームに はいりません'; return; }
-    frameInfo = frameImg.frameInfo;
-    if (design === 'custom') checkReadable();
+    // 作ったら その場で 縮めて読めるか ためし、読めなければ 帯を一段 太くして 作りなおす(読めないフレームは わたさない)
+    let band = BAND_CHOICES[bandKey], thick = false, ok = false;
+    const msg = $('make-msg');
+    for (;;) {
+      try { frameImg = await buildFrame({ text, designKey: design, photoAspect: mediaW / mediaH, outerAspect: shape === 'fit' ? null : SHAPES[shape][1], band, size: isVideo ? 1280 : 1600, sprites: customSprites }); }
+      catch (err) { msg.textContent = 'ながすぎて フレームに はいりません'; return; }
+      frameInfo = frameImg.frameInfo;
+      msg.style.color = '#b6b6d8'; msg.textContent = 'よみとれるか たしかめています…';
+      if (frameInfo.band && frameInfo.band > band + 1e-9) thick = true;
+      if ((ok = await readableAfterShrink(text))) break;
+      const next = BAND_STEPS.find((v) => v > (frameInfo.band || band) + 1e-9);
+      if (!next) break;
+      band = next; thick = true;
+    }
+    msg.style.color = ok ? '#7ad17a' : '';
+    msg.textContent = !ok ? (design === 'custom' ? 'この そざいだと 読みとりにくいようです。似ている絵を ちがう絵に かえてみてください' : '読みとれる フレームを 作れませんでした。ことばを 短くしてみてください')
+      : thick ? '✓ 読みとれるように わくを 少し 太くしました' : '✓ よみとれることを たしかめました';
+    if (!ok) return;
   } else {
     if (!savedFrame) { $('make-msg').textContent = 'フレームを えらんでください'; return; }
     const info = await readFrame(savedFrame);
@@ -214,18 +228,18 @@ async function doMake() {
   $('make-result').classList.remove('hidden');
   $('preview').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
-async function checkReadable() {
-  const msg = $('make-msg'), mine = frameImg;
-  msg.style.color = '#b6b6d8'; msg.textContent = 'よみとれるか たしかめています…';
-  const c = document.createElement('canvas'); c.width = Math.round(mine.width * 0.75); c.height = Math.round(mine.height * 0.75);
-  const x = c.getContext('2d'), full = document.createElement('canvas'); full.width = mine.width; full.height = mine.height;
-  composite(full.getContext('2d'), mine, frameInfo, media, mediaW, mediaH, view);
-  x.drawImage(full, 0, 0, c.width, c.height);
-  const img = await loadImage(URL.createObjectURL(await toBlob(c, 'image/jpeg', 0.8)));
-  const r = await readFrame(img);
-  if (frameImg !== mine) return;
-  msg.style.color = r ? '#7ad17a' : '';
-  msg.textContent = r ? '✓ よみとれることを たしかめました' : 'この そざいだと 読みとりにくいようです。似ている絵を ちがう絵に かえるか、わくを ふとくしてみてください';
+// 約1000pxまで縮めて JPEGにしても 読めるか(LINEなどで 小さくされても 読めるように)
+async function readableAfterShrink(text) {
+  const full = document.createElement('canvas'); full.width = frameImg.width; full.height = frameImg.height;
+  composite(full.getContext('2d'), frameImg, frameInfo, media, mediaW, mediaH, { zoom: 1, dx: 0, dy: 0 });
+  const k = Math.min(1, 1000 / Math.max(full.width, full.height)), c = document.createElement('canvas');
+  c.width = Math.round(full.width * k); c.height = Math.round(full.height * k);
+  c.getContext('2d').drawImage(full, 0, 0, c.width, c.height);
+  // 絵巻・じぶんの素材は 作った並べ方が わかっているので、その並べ方だけ 読む(すぐ終わる)
+  const d = DESIGNS[design], hint = d.kind === 'emaki' ? { kind: 'emaki', key: design, band: frameInfo.band, nx: frameInfo.nx }
+    : d.kind === 'custom' ? { kind: 'custom', count: customSprites.length, band: frameInfo.band, nx: frameInfo.nx } : null;
+  const r = await readFrame(await loadImage(URL.createObjectURL(await toBlob(c, 'image/jpeg', 0.75))), hint);
+  return !!r && r.text === text;
 }
 // ゆびで写真を動かす・バーやホイールで大きさを変える
 let drag = null;

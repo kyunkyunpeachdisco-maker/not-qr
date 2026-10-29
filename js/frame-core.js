@@ -61,7 +61,7 @@ const SPRITES = {
 const DESIGNS = {
   chojugiga: { kind: 'emaki', name: '鳥獣戯画', bg: '#f4eedf' },
   hyakki: { kind: 'emaki', name: '百鬼夜行', bg: '#efe5d0' },
-  custom: { kind: 'custom', name: 'じぶんの そざい', bg: '#f7f4ec' },
+  custom: { kind: 'custom', name: 'じぶんの そざい', bg: '#e4ecf6' },
   yokai: { kind: 'parade', name: 'おばけ', bg: '#211c44', corner: 'moon' },
   birthday: { kind: 'parade', name: 'たんじょうび', bg: '#ffe4ef', corner: 'star' },
   eto: { kind: 'parade', name: 'えと', bg: '#fbefd5', corner: 'sun' },
@@ -299,6 +299,8 @@ function classifyQR(px, W, Wu, Hu, slots, uw, uh) {
 // ===== 帯の太さと 窓(写真・動画が入るところ) =====
 // 帯の太さは 画像の短い辺に対する割合。窓は いつも写真・動画と同じ縦横比にして、写真を切らない
 const BAND_CHOICES = { ほそい: 0.05, ふつう: 0.08, ふとい: 0.12 };
+// 絵巻・じぶんの素材は、絵を小さくしすぎると 縮小に弱くなるので、入りきらないときは 帯を この段階で 太くする
+const BAND_STEPS = [0.05, 0.06, 0.07, 0.08, 0.1, 0.12, 0.14, 0.17, 0.2];
 const WIN_Q = 250; // 窓の位置は 画像の幅・高さを250等分した目盛りで データに入れる
 // 外がわの大きさ。outerAspect が null なら「写真に合わせる」(窓のまわりに 同じ太さの帯)
 function outerSize(size, photoAspect, outerAspect, band) {
@@ -330,7 +332,7 @@ const EMAKI = {
   chojugiga: { dir: 'assets/chojugiga/' },
   hyakki: { dir: 'assets/hyakki/' },
 };
-const EMAKI_NX = [12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 52, 56];
+const EMAKI_NX = [12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
 const emakiSprites = {};
 function loadEmaki(key) {
   if (!emakiSprites[key]) {
@@ -379,11 +381,11 @@ function drawTornPaper(x, W, H, r, C, bg) {
   x.fillStyle = bg; x.fill('evenodd');
   x.restore();
 }
-async function buildEmaki(text, designKey, W, H, bandPx, photoAspect) {
+async function buildEmaki(text, designKey, W, H, band, photoAspect) {
   const sprites = await loadEmaki(designKey), payload = await packText(text);
-  const win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
-  // 絵は 入る範囲で いちばん大きく
-  for (const nx of EMAKI_NX) {
+  // 絵は 入る範囲で いちばん大きく。下限の大きさでも 入らなければ 帯を太くする
+  for (const b of BAND_STEPS.filter((v) => v >= band - 1e-9)) for (const nx of EMAKI_NX) {
+    const bandPx = b * Math.min(W, H), win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
     const { L, n, nsym, cap } = emakiCode(W, H, bandPx, nx);
     if (L.cells.length < 16 || payload.length > cap) continue;
     const msg = [...winBytes(win), payload.length, ...payload];
@@ -399,7 +401,7 @@ async function buildEmaki(text, designKey, W, H, bandPx, photoAspect) {
       if ((d.e < 0.45 * L.C && d.e > -0.4 * L.C) || g > 0.55 * L.C || (g > 0 && hash01(d.r, d.c, 4) < 0.35)) drawMotif(x, sprites, d.x, d.y, L.C, Math.floor(hash01(d.r, d.c, 3) * 256));
     });
     L.cells.forEach((cell, i) => drawMotif(x, sprites, cell.x, cell.y, L.C, (i < n ? code[i] : 0) ^ (maskVal(i) & 255)));
-    c.frameInfo = { kind: 'emaki', W, H, win, text };
+    c.frameInfo = { kind: 'emaki', W, H, win, text, band: b, nx };
     return c;
   }
   throw new Error('too long');
@@ -437,6 +439,24 @@ async function getEmakiTemplates(key) {
   }
   return (emakiTemplates[key] = features(ax.getImageData(0, 0, FEAT, FEAT * 256).data, 256));
 }
+const FEAT_S = 12;
+// 32×32の色の特徴から 12×12の白黒の 粗い特徴を作る(ざっと くらべる用)
+function smallFeature(f) {
+  const g = new Float32Array(FEAT_S * FEAT_S), r = FEAT / FEAT_S;
+  for (let y = 0; y < FEAT; y++) for (let x = 0; x < FEAT; x++) { const i = (y * FEAT + x) * 3; g[Math.min(FEAT_S - 1, (y / r) | 0) * FEAT_S + Math.min(FEAT_S - 1, (x / r) | 0)] += f[i] + f[i + 1] + f[i + 2]; }
+  let m = 0; for (const v of g) m += v; m /= g.length;
+  let n = 0; for (let i = 0; i < g.length; i++) { g[i] -= m; n += g[i] * g[i]; }
+  n = Math.sqrt(n) || 1; for (let i = 0; i < g.length; i++) g[i] /= n;
+  return g;
+}
+const smallTemplates = new Map();
+function smallOf(tpl) { if (!smallTemplates.has(tpl)) smallTemplates.set(tpl, tpl.map(smallFeature)); return smallTemplates.get(tpl); }
+function roughScore(feats, tpl) {
+  const st = smallOf(tpl);
+  let sum = 0;
+  for (const f of feats) { const g = smallFeature(f); let best = -Infinity; for (const t of st) { let sc = 0; for (let k = 0; k < g.length; k++) sc += g[k] * t[k]; if (sc > best) best = sc; } sum += best; }
+  return sum / feats.length;
+}
 function bestSym(f, tpl) {
   let best = 0, bestScore = -Infinity;
   for (let s = 0; s < 256; s++) { let sc = 0; const t = tpl[s]; for (let k = 0; k < f.length; k++) sc += f[k] * t[k]; if (sc > bestScore) { bestScore = sc; best = s; } }
@@ -461,15 +481,16 @@ function cellFeatures(img, cells, C, s) {
   cells.forEach((cell, i) => ax.drawImage(img, (cell.x - C / 2) * s, (cell.y - C / 2) * s, C * s, C * s, 0, i * FEAT, FEAT, FEAT));
   return features(ax.getImageData(0, 0, FEAT, FEAT * cells.length).data, cells.length);
 }
-async function readEmaki(img) {
+async function readEmaki(img, hint) {
   const W = img.width, H = img.height;
-  for (const band of Object.values(BAND_CHOICES)) for (const nx of EMAKI_NX) {
+  for (const band of hint ? [hint.band] : BAND_STEPS) for (const nx of hint ? [hint.nx] : EMAKI_NX) {
     const probeL = emakiCode(W, H, band * Math.min(W, H), nx).L;
     if (probeL.cells.length < 16) continue;
-    // まず16個だけ くらべて、似ていなければ この並べ方・この絵巻ではないとみなして とばす
+    // まず16個だけ、粗い特徴で ざっと くらべ、そのあと 細かく くらべる。似ていなければ この並べ方・この絵巻ではない
     const probeF = cellFeatures(img, probeL.cells.slice(0, 16), probeL.C, 1);
-    for (const key of Object.keys(EMAKI)) {
+    for (const key of hint ? [hint.key] : Object.keys(EMAKI)) {
       const tpl = await getEmakiTemplates(key);
+      if (!hint && roughScore(probeF, tpl) < 0.6) continue;
       if (probeF.map((f) => bestSym(f, tpl)[1]).reduce((a, b) => a + b, 0) / 16 < 0.75) continue;
       for (const [W0, H0] of originalSizes(W, H)) {
         const { L, n, nsym, cap } = emakiCode(W0, H0, band * Math.min(W0, H0), nx);
@@ -489,7 +510,8 @@ async function readEmaki(img) {
 // --- じぶんの素材(custom): ユーザーが用意した 8枚 か 16枚の絵で 絵巻と同じように並べる ---
 // 帯の はじめの N マスに 素材を 正位置で1枚ずつ置き(見本)、読みとるときは その見本から 照らし合わせ用の絵を作る。
 // 8枚: 種類(8)×向き(8)×左右反転×大小、16枚: 種類(16)×向き(8)×左右反転。どちらも 絵1つに1バイト
-const CUSTOM_BG = '#f7f4ec';
+// 組み込みの絵巻の 紙の色と まちがえないよう、うすい青みの 紙にする
+const CUSTOM_BG = '#e4ecf6';
 const CUSTOM_COUNTS = [8, 16];
 function symParts(sym, count) {
   return count === 16
@@ -534,10 +556,10 @@ function customCode(W, H, bandPx, nx, count) {
   const L = edgeLayout(W, H, bandPx, nx), n = Math.min(255, L.cells.length - count), nsym = Math.max(8, Math.ceil(n / 4));
   return { L, n, nsym, cap: n - nsym - 5 };
 }
-async function buildCustom(text, sprites, W, H, bandPx, photoAspect) {
+async function buildCustom(text, sprites, W, H, band, photoAspect) {
   const count = sprites.length, payload = await packText(text);
-  const win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
-  for (const nx of EMAKI_NX) {
+  for (const b of BAND_STEPS.filter((v) => v >= band - 1e-9)) for (const nx of EMAKI_NX) {
+    const bandPx = b * Math.min(W, H), win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
     const { L, n, nsym, cap } = customCode(W, H, bandPx, nx, count);
     if (n < 16 || payload.length > cap) continue;
     const msg = [...winBytes(win), payload.length, ...payload];
@@ -560,16 +582,16 @@ async function buildCustom(text, sprites, W, H, bandPx, photoAspect) {
       x.fillStyle = CUSTOM_BG; x.beginPath(); x.arc(cell.x, cell.y, L.C * 0.52, 0, Math.PI * 2); x.fill();
       drawCustomMotif(x, sprites, cell.x, cell.y, L.C, uprightSym(i, count));
     });
-    c.frameInfo = { kind: 'emaki', W, H, win, text };
+    c.frameInfo = { kind: 'emaki', W, H, win, text, band: b, nx };
     return c;
   }
   throw new Error('too long');
 }
-async function readCustom(img) {
+async function readCustom(img, hint) {
   const W = img.width, H = img.height;
   const full = document.createElement('canvas'); full.width = W; full.height = H;
   const fx = full.getContext('2d', { willReadFrequently: true }); fx.drawImage(img, 0, 0);
-  const px = fx.getImageData(0, 0, W, H).data, bg = [0xf7, 0xf4, 0xec];
+  const px = fx.getImageData(0, 0, W, H).data, bg = [0xe4, 0xec, 0xf6];
   // 見本のまわり(紙の色の丸)が 紙の色に 見えるか。見えなければ その並べ方ではない
   const ringOk = (cell, C) => {
     let k = 0, bad = 0;
@@ -578,14 +600,14 @@ async function readCustom(img) {
         const xx = Math.round(cell.x + Math.cos((a * Math.PI) / 12) * C * rr), yy = Math.round(cell.y + Math.sin((a * Math.PI) / 12) * C * rr);
         if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
         const i = (yy * W + xx) * 4;
-        if (Math.hypot(px[i] - bg[0], px[i + 1] - bg[1], px[i + 2] - bg[2]) > 45) bad++;
+        if (Math.hypot(px[i] - bg[0], px[i + 1] - bg[1], px[i + 2] - bg[2]) > 20) bad++;
         k++;
       }
     }
     // 見本の絵の角が 丸に少し かかることは あるので、2割までは 紙の色でなくても よい
     return k > 16 && bad <= k * 0.2;
   };
-  for (const count of CUSTOM_COUNTS) for (const band of Object.values(BAND_CHOICES)) for (const nx of EMAKI_NX) {
+  for (const count of hint ? [hint.count] : CUSTOM_COUNTS) for (const band of hint ? [hint.band] : BAND_STEPS) for (const nx of hint ? [hint.nx] : EMAKI_NX) {
     const probe = customCode(W, H, band * Math.min(W, H), nx, count);
     if (probe.n < 16) continue;
     if (!probe.L.cells.slice(0, count).every((cell) => ringOk(cell, probe.L.C))) continue;
@@ -622,8 +644,8 @@ async function readCustom(img) {
 
 async function buildFrame({ text, designKey, photoAspect, outerAspect = null, band = BAND_CHOICES['ふつう'], size = 1600, sprites = null }) {
   const d = DESIGNS[designKey], { W: W0, H: H0 } = outerSize(size, photoAspect, outerAspect, band);
-  if (d.kind === 'emaki') return buildEmaki(text, designKey, W0, H0, band * Math.min(W0, H0), photoAspect);
-  if (d.kind === 'custom') return buildCustom(text, sprites, W0, H0, band * Math.min(W0, H0), photoAspect);
+  if (d.kind === 'emaki') return buildEmaki(text, designKey, W0, H0, band, photoAspect);
+  if (d.kind === 'custom') return buildCustom(text, sprites, W0, H0, band, photoAspect);
   const k = KINDS[d.kind], A = W0 / H0, target = band * Math.min(W0, H0);
   const payload = await packText(text);
   // 帯(k.band マス)の太さが 選んだ太さに いちばん近い マスの数から ためし、入らなければ マスを細かくする
@@ -650,7 +672,10 @@ async function buildFrame({ text, designKey, photoAspect, outerAspect = null, ba
 }
 
 // 読めたら { text, Wu, Hu, inset }、読めなければ null
-async function readFrame(img) {
+// hint = { kind: 'emaki'|'custom', key, count, band, nx } を渡すと その並べ方だけ読む(作った直後の チェック用)
+async function readFrame(img, hint) {
+  if (hint && hint.kind === 'emaki') return readEmaki(img, hint);
+  if (hint && hint.kind === 'custom') return readCustom(img, hint);
   const W = img.width, H = img.height;
   let px = null;
   const tryDecode = async (syms, fc, b, Wu, Hu) => {
@@ -693,7 +718,7 @@ async function readFrame(img) {
       }
     }
   }
-  return (await readCustom(img)) || readEmaki(img);
+  return (await readEmaki(img)) || readCustom(img);
 }
 
 // 窓(写真・動画が入るところ)の位置。W×H はフレーム画像の大きさ
