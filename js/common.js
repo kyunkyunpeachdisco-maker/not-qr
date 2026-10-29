@@ -215,7 +215,19 @@ function loadScriptOnce(src) {
 // canvas: 描く先(幅・高さは偶数)、audio: { sampleRate, channels: [Float32Array…] } か null。
 // コマの作り方は どちらか: draw(t) … t秒の絵を canvas に描く(1/fps 秒ごとに 呼ばれる)
 //                          source(emit) … 自分で canvas に描いて emit(その絵の時刻) を呼ぶ。終わったら 返す(動画の再生に 合わせるとき)
-async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress }) {
+// 決まった時間で 終わらなければ 失敗にする(iPhoneで 書きだしが 返ってこないことがあるため)
+function withTimeout(promise, ms, what) {
+  return Promise.race([promise, new Promise((_, ng) => setTimeout(() => ng(new Error(`timeout: ${what}`)), ms))]);
+}
+async function waitQueue(enc, max, what, getFailed) {
+  const t0 = Date.now();
+  while (enc.encodeQueueSize > max && !getFailed()) {
+    if (Date.now() - t0 > 15000) throw new Error(`timeout: ${what}`);
+    await new Promise((ok) => setTimeout(ok, 5));
+  }
+}
+// onStage(なまえ): いま どの段階か(止まったときに どこで止まったか わかるように)
+async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress, onStage = () => {} }) {
   if (!window.VideoEncoder || !window.VideoFrame || (audio && !window.AudioEncoder)) return null;
   const W = canvas.width, H = canvas.height;
   let vconf = null;
@@ -250,13 +262,15 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
     for (let i = 0; i < n; i++) {
       await draw(i / fps);
       emit(i / fps);
-      while (venc.encodeQueueSize > 8 && !failed) await new Promise((ok) => setTimeout(ok, 5));
+      await waitQueue(venc, 8, 'video', () => failed);
       if (failed) throw failed;
     }
   }
   if (failed || !count) throw failed || new Error('no frames');
-  await venc.flush();
+  onStage('えいぞうを しあげています');
+  await withTimeout(venc.flush(), 30000, 'video flush');
   if (aconf) {
+    onStage('おとを つくっています');
     const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => { failed = e; } });
     aenc.configure(aconf);
     const len = audio.channels[0].length, step = 4096;
@@ -265,11 +279,13 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
       audio.channels.forEach((ch, k) => data.set(ch.subarray(s, s + m), k * m));
       const ad = new AudioData({ format: 'f32-planar', sampleRate: audio.sampleRate, numberOfFrames: m, numberOfChannels: audio.channels.length, timestamp: Math.round((s / audio.sampleRate) * 1e6), data });
       aenc.encode(ad); ad.close();
-      while (aenc.encodeQueueSize > 16 && !failed) await new Promise((ok) => setTimeout(ok, 5));
+      await waitQueue(aenc, 16, 'audio', () => failed);
+      if (failed) throw failed;
     }
-    await aenc.flush();
+    await withTimeout(aenc.flush(), 30000, 'audio flush');
   }
   if (failed) throw failed;
+  onStage('ファイルに まとめています');
   muxer.finalize();
   const blob = new Blob([target.buffer], { type: 'video/mp4' });
   // 書きだした動画の長さが 合っているか たしかめる(おかしければ null にして 録画で作りなおす)

@@ -184,8 +184,9 @@ async function saveVideo() {
     let blob = null;
     try {
       blob = await encodeVideoFile({ canvas: c, duration: dur, draw: drawAt, audio: { sampleRate: buf.sampleRate, channels: [buf.getChannelData(0)] }, bitrate: 6000000,
+        onStage: (st) => { btn.textContent = `${st}…`; },
         onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
-    } catch (e) { blob = null; }
+    } catch (e) { blob = null; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${e && e.message}）`; }
     if (blob) { saveBlobLater(blob, stampName('fukkatsu-melody', 'mp4')); return; }
     scroll = 0;
     const stream = c.captureStream(30), src = ac.createBufferSource(), dest = ac.createMediaStreamDestination();

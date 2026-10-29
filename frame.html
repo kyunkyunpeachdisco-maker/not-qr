@@ -304,8 +304,9 @@ async function saveVideo() {
         v.muted = true;
         seekVideo(v, 0).then(() => { v.requestVideoFrameCallback(onFrame); return v.play(); }).catch(ng);
       }),
+      onStage: (st) => { btn.textContent = `${st}…`; },
       onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
-  } catch (err) { blob = null; }
+  } catch (err) { blob = null; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${err && err.message}）`; }
   if (blob) {
     document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
     btn.textContent = label; $('video-wait').classList.add('hidden');
