@@ -291,6 +291,11 @@ async function saveVideo() {
   const btn = $('save-btn'), label = btn.textContent;
   btn.textContent = 'じゅんびちゅう…'; $('video-wait').classList.remove('hidden');
   const v = media;
+  // 音の通り道は ボタンを押した その場で 作って 動かしておく(iPhoneは あとからだと 音が 止まったままになる)
+  try {
+    if (!audioRoute) { const ac = new AudioContext(), src = ac.createMediaElementSource(v), dest = ac.createMediaStreamDestination(); src.connect(dest); audioRoute = { ac, src, dest }; }
+    audioRoute.ac.resume();
+  } catch (err) {}
   document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = true; });
   // まず 1コマずつ 書きだす: 元の動画を その時刻に 合わせて 1コマずつ 取りだし、フレームを重ねる(音は 元の動画の音)
   let blob = null;
@@ -299,7 +304,16 @@ async function saveVideo() {
     try {
       const ac2 = new AudioContext(), ab = await ac2.decodeAudioData(await mediaFile.arrayBuffer()); ac2.close();
       audio = { sampleRate: ab.sampleRate, channels: Array.from({ length: Math.min(2, ab.numberOfChannels) }, (_, k) => ab.getChannelData(k)) };
-    } catch (err) { audio = null; }  // 音のない動画
+    } catch (err) { audio = null; }
+    // iPhoneは 動画ファイルから 音を 取りだせないことがある。そのときは 再生しながら 音を 録る(聞こえないように)
+    let cap = null;
+    if (!audio && audioRoute) {
+      const ac = audioRoute.ac, proc = ac.createScriptProcessor(4096, 2, 2), mute = ac.createGain(), bufs = [[], []];
+      mute.gain.value = 0; audioRoute.src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+      cap = { on: false, bufs, stop: () => { try { audioRoute.src.disconnect(proc); proc.disconnect(); mute.disconnect(); } catch (e) {} } };
+      proc.onaudioprocess = (e) => { if (cap.on) for (let k = 0; k < 2; k++) bufs[k].push(new Float32Array(e.inputBuffer.getChannelData(Math.min(k, e.inputBuffer.numberOfChannels - 1)))); };
+      audio = { sampleRate: ac.sampleRate, channels: [new Float32Array(1), new Float32Array(1)] };
+    }
     const enc = document.createElement('canvas'); enc.width = frameImg.width + (frameImg.width & 1); enc.height = frameImg.height + (frameImg.height & 1);
     const ex = enc.getContext('2d');
     blob = await encodeVideoFile({ canvas: enc, duration: v.duration, audio, bitrate: 8000000,
@@ -308,17 +322,23 @@ async function saveVideo() {
         if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return ng(new Error('no rvfc'));
         let last = -1;
         const onFrame = (now, meta) => {
+          if (cap && !cap.on) cap.on = true;
           if (meta.mediaTime > last) { last = meta.mediaTime; composite(ex, frameImg, frameInfo, v, mediaW, mediaH, view); emit(meta.mediaTime); }
           if (!v.ended) v.requestVideoFrameCallback(onFrame);
         };
-        v.onended = () => ok();
-        v.muted = true;
+        v.onended = () => {
+          // 録った音を つなげて 書きだす音にする
+          if (cap) { cap.on = false; cap.stop(); audio.channels = cap.bufs.map((list) => { const out = new Float32Array(list.reduce((a, b) => a + b.length, 0)); let o = 0; for (const b of list) { out.set(b, o); o += b.length; } return out; }); }
+          ok();
+        };
+        v.muted = !cap;
         seekVideo(v, 0).then(() => { v.requestVideoFrameCallback(onFrame); return v.play(); }).catch(ng);
       }),
       onStage: (st) => { btn.textContent = `${st}…`; },
       onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
-  } catch (err) { blob = null; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${err && err.message}）`; }
+  } catch (err) { blob = null; v.muted = true; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${err && err.message}）`; }
   if (blob) {
+    v.muted = true;
     document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
     btn.textContent = label; $('video-wait').classList.add('hidden');
     await seekVideo(v, 0.1); render();
@@ -329,7 +349,7 @@ async function saveVideo() {
   const out = document.createElement('canvas'); out.width = frameImg.width; out.height = frameImg.height;
   const x = out.getContext('2d'), stream = out.captureStream(30);
   try {
-    if (!audioRoute) { const ac = new AudioContext(), dest = ac.createMediaStreamDestination(); ac.createMediaElementSource(v).connect(dest); audioRoute = { ac, dest }; }
+    if (!audioRoute) { const ac = new AudioContext(), src = ac.createMediaElementSource(v), dest = ac.createMediaStreamDestination(); src.connect(dest); audioRoute = { ac, src, dest }; }
     await audioRoute.ac.resume();
     audioRoute.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
   } catch (err) {}
