@@ -103,6 +103,7 @@
         <button class="primary" id="save-btn" onclick="saveResult()">がぞうを ほぞん</button>
         <button id="save-frame-btn" onclick="saveFrameOnly()">フレームだけ ほぞん</button>
       </div>
+      <div class="info hidden" id="video-wait">どうがは さいしょから さいごまで 再生しながら 作るので、どうがの長さだけ 時間が かかります。そのあいだ 画面を とじないでください。</div>
       <div class="info">送るときは、切りとらずに そのまま送ってください。ふちが欠けると 読みとれません。LINEやXで 小さくなったり 画質が落ちたりするのは だいじょうぶです。</div>
     </div>
     <div class="info" style="font-size:11px;margin-top:8px">絵巻の絵：鳥獣人物戯画（高山寺）・百鬼夜行絵巻（真珠庵本）より。ウィキメディア・コモンズのパブリックドメイン画像から切り抜いて使っています。</div>
@@ -274,6 +275,9 @@ async function saveFrameOnly() {
 // 動画: 最初から最後まで再生しながら、フレームと重ねた絵を録画する(音もそのまま)
 let audioRoute = null;
 async function saveVideo() {
+  // 進み具合は 押したボタンに出す(上のメッセージ欄は スクロールで 見えないことがあるため)
+  const btn = $('save-btn'), label = btn.textContent;
+  btn.textContent = 'じゅんびちゅう…'; $('video-wait').classList.remove('hidden');
   const v = media, out = document.createElement('canvas'); out.width = frameImg.width; out.height = frameImg.height;
   const x = out.getContext('2d'), stream = out.captureStream(30);
   try {
@@ -282,7 +286,7 @@ async function saveVideo() {
     audioRoute.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
   } catch (err) {}
   const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
-  if (!mime) { $('make-msg').textContent = 'このブラウザでは どうがを 作れません'; return; }
+  if (!mime) { btn.textContent = label; $('make-msg').textContent = 'このブラウザでは どうがを 作れません'; return; }
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 }), chunks = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const stopped = new Promise((ok) => { rec.onstop = ok; });
@@ -292,8 +296,7 @@ async function saveVideo() {
   let raf = 0;
   const draw = () => {
     composite(x, frameImg, frameInfo, v, mediaW, mediaH, view);
-    $('make-msg').style.color = '#b6b6d8';
-    $('make-msg').textContent = `どうがを つくっています… ${Math.round((v.currentTime / v.duration) * 100)}%（画面を とじないでください）`;
+    btn.textContent = `どうがを つくっています… ${Math.round((v.currentTime / v.duration) * 100)}%`;
     raf = requestAnimationFrame(draw);
   };
   draw();
@@ -305,7 +308,7 @@ async function saveVideo() {
   await stopped;
   v.muted = true;
   document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
-  $('make-msg').style.color = ''; $('make-msg').textContent = '';
+  btn.textContent = label; $('video-wait').classList.add('hidden');
   await seekVideo(v, 0.1); render();
   saveBlob(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-frame', mime.includes('mp4') ? 'mp4' : 'webm'));
 }
