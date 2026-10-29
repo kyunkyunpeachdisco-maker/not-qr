@@ -112,6 +112,7 @@
       </div>
     </div>
     <div class="info">このページで作った フレームや、フレームつきの しゃしん・どうがを えらぶと、うめこまれた ことばを 読みとります。スクリーンショットではなく、保存したものを そのまま えらんでください。</div>
+    <div class="info" style="font-size:11px;margin-top:8px">絵巻の絵：鳥獣人物戯画（高山寺）・百鬼夜行絵巻（真珠庵本）より。ウィキメディア・コモンズのパブリックドメイン画像から切り抜いて使っています。</div>
   </div>
 </div>
 
@@ -263,7 +264,9 @@ const SPRITES = {
   ],
 };
 const DESIGNS = {
-  yokai: { kind: 'parade', name: '百鬼夜行', bg: '#211c44', corner: 'moon' },
+  chojugiga: { kind: 'emaki', name: '鳥獣戯画', bg: '#f4eedf' },
+  hyakki: { kind: 'emaki', name: '百鬼夜行', bg: '#efe5d0' },
+  yokai: { kind: 'parade', name: 'おばけ', bg: '#211c44', corner: 'moon' },
   birthday: { kind: 'parade', name: 'たんじょうび', bg: '#ffe4ef', corner: 'star' },
   eto: { kind: 'parade', name: 'えと', bg: '#fbefd5', corner: 'sun' },
   rpg: { kind: 'parade', name: 'モンスター', bg: '#13173a', corner: 'cursor' },
@@ -497,8 +500,153 @@ function classifyQR(px, W, Wu, Hu, slots, uw, uh) {
   return slots.map((s) => (lum(s.x, s.y) < thr ? 1 : 0));
 }
 
+// --- 絵巻(emaki): 本物の絵巻から切り抜いた絵を、ちぎった和紙の帯に並べる ---
+// 絵1つに1バイト: 種類(8) × 回転(45°ずつ8方向) × 左右反転 × 大小。和紙の帯は 列の数×絵の大きさ で太さが決まり、
+// 入る範囲で いちばん細くなる並べ方を選ぶ
+const EMAKI = {
+  chojugiga: { dir: 'assets/chojugiga/' },
+  hyakki: { dir: 'assets/hyakki/' },
+};
+const EDGE_CONFIGS = (() => {
+  const list = [];
+  for (const rows of [1, 2, 3]) for (let nx = 12; nx <= 24; nx += 2) list.push([rows, nx]);
+  return list.sort((a, b) => (a[1] > 20) - (b[1] > 20) || a[0] / a[1] - b[0] / b[1] || a[1] - b[1]);
+})();
+const emakiSprites = {};
+function loadEmaki(key) {
+  if (!emakiSprites[key]) {
+    emakiSprites[key] = Promise.all(Array.from({ length: 8 }, (_, i) => new Promise((ok, ng) => {
+      const img = new Image(); img.onload = () => ok(img); img.onerror = ng; img.src = `${EMAKI[key].dir}${i + 1}.png`;
+    })));
+  }
+  return emakiSprites[key];
+}
+// 位置のゆらぎ用。ブラウザによって結果が変わらないよう整数だけで計算する
+const hash01 = (a, b, k) => ((Math.imul(a * 73856093 ^ b * 19349663 ^ k * 83492791, 2654435761) >>> 0) % 10007) / 10007;
+function edgeLayout(W, H, rows, nx) {
+  const C = Math.max(W, H) / nx, rowH = C * 0.87, depth = rows * rowH + 0.3 * C;
+  const cells = [], deco = [];
+  for (let r = 0; r * rowH < H + C; r++) for (let c = -1; c * C < W + C; c++) {
+    const x = (c + (r % 2) * 0.5 + 0.25) * C + (hash01(r, c, 1) - 0.5) * 0.2 * C;
+    const y = (r + 0.5) * rowH + 0.12 * C + (hash01(r, c, 2) - 0.5) * 0.2 * C;
+    const e = Math.min(x, W - x, y, H - y);
+    if (e >= 0.45 * C && e <= depth - 0.5 * C) cells.push({ x, y, r, c });
+    else if ((e > depth - 0.5 * C && e < depth + 0.15 * C && hash01(r, c, 4) < 0.35) || (e < 0.45 * C && e > -0.4 * C)) deco.push({ x, y, r, c });
+  }
+  return { C, depth, cells, deco };
+}
+function emakiCode(W, H, rows, nx) {
+  const L = edgeLayout(W, H, rows, nx), n = Math.min(255, L.cells.length), nsym = Math.max(8, Math.ceil(n / 4));
+  return { L, n, nsym, cap: n - nsym - 1 };
+}
+function drawMotif(x, sprites, cx, cy, C, sym) {
+  const img = sprites[sym >> 5], rot = (sym >> 2) & 7, mirror = (sym >> 1) & 1, big = sym & 1;
+  const s = (C * (big ? 0.82 : 0.55)) / Math.max(img.width, img.height);
+  x.save(); x.translate(cx, cy); x.rotate((rot * Math.PI) / 4); x.scale(mirror ? -s : s, s);
+  x.drawImage(img, -img.width / 2, -img.height / 2); x.restore();
+}
+function drawTornPaper(x, W, H, depth, C, bg) {
+  // 内がわのふちを ゆるやかに破れた形にして、まっすぐな枠線に見せない
+  let wob = 0;
+  const pts = [], step = C * 0.18, j = () => { wob = wob * 0.6 + (Math.random() - 0.5) * 0.4; return depth + C * (0.15 + wob * 0.25 + Math.random() * 0.06); };
+  for (let px = depth; px <= W - depth; px += step) pts.push([px, j()]);
+  for (let py = depth; py <= H - depth; py += step) pts.push([W - j(), py]);
+  for (let px = W - depth; px >= depth; px -= step) pts.push([px, H - j()]);
+  for (let py = H - depth; py >= depth; py -= step) pts.push([j(), py]);
+  x.save();
+  x.beginPath(); x.rect(0, 0, W, H);
+  pts.forEach(([px, py], i) => (i ? x.lineTo(px, py) : x.moveTo(px, py))); x.closePath();
+  x.shadowColor = 'rgba(0,0,0,0.25)'; x.shadowBlur = C * 0.15;
+  x.fillStyle = bg; x.fill('evenodd');
+  x.restore();
+}
+async function buildEmaki(text, designKey, aspect, size) {
+  const sprites = await loadEmaki(designKey), payload = await packText(text);
+  const W = aspect >= 1 ? size : Math.round(size * aspect), H = aspect >= 1 ? Math.round(size / aspect) : size;
+  for (const [rows, nx] of EDGE_CONFIGS) {
+    const { L, n, nsym, cap } = emakiCode(W, H, rows, nx);
+    if (payload.length > cap) continue;
+    const msg = [payload.length, ...payload];
+    while (msg.length < n - nsym) msg.push(0);
+    const code = rsEncode(msg, nsym);
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    drawTornPaper(x, W, H, L.depth, L.C, DESIGNS[designKey].bg);
+    L.deco.forEach((d) => drawMotif(x, sprites, d.x, d.y, L.C, Math.floor(hash01(d.r, d.c, 3) * 256)));
+    L.cells.forEach((cell, i) => drawMotif(x, sprites, cell.x, cell.y, L.C, (i < n ? code[i] : 0) ^ (maskVal(i) & 255)));
+    c.frameInfo = { kind: 'emaki', W, H, rows, nx, depth: L.depth, C: L.C, text };
+    return c;
+  }
+  throw new Error('too long');
+}
+// 1マスを32×32に縮めた色の並びで、256通りの見本とくらべる(真ん中を重く、となりが はみ出してくる まわりを軽く)
+const FEAT = 32;
+const FEAT_W = new Float32Array(FEAT * FEAT).map((_, i) => { const dx = ((i % FEAT) + 0.5) / FEAT - 0.5, dy = (Math.floor(i / FEAT) + 0.5) / FEAT - 0.5; return Math.exp(-(dx * dx + dy * dy) / (2 * 0.22 * 0.22)); });
+function features(data, count) {
+  const len = FEAT * FEAT * 3, out = [];
+  for (let t = 0; t < count; t++) {
+    const f = new Float32Array(len);
+    let mean = 0;
+    for (let i = 0; i < FEAT * FEAT; i++) for (let ch = 0; ch < 3; ch++) { const v = data[(t * FEAT * FEAT + i) * 4 + ch]; f[i * 3 + ch] = v; mean += v; }
+    mean /= len;
+    let norm = 0;
+    for (let i = 0; i < len; i++) { f[i] = (f[i] - mean) * FEAT_W[(i / 3) | 0]; norm += f[i] * f[i]; }
+    norm = Math.sqrt(norm) || 1;
+    for (let i = 0; i < len; i++) f[i] /= norm;
+    out.push(f);
+  }
+  return out;
+}
+const emakiTemplates = {};
+async function getEmakiTemplates(key) {
+  if (emakiTemplates[key]) return emakiTemplates[key];
+  const sprites = await loadEmaki(key), C = 128;
+  const one = document.createElement('canvas'); one.width = C; one.height = C;
+  const ox = one.getContext('2d');
+  const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * 256;
+  const ax = atlas.getContext('2d', { willReadFrequently: true });
+  for (let sym = 0; sym < 256; sym++) {
+    ox.fillStyle = DESIGNS[key].bg; ox.fillRect(0, 0, C, C);
+    drawMotif(ox, sprites, C / 2, C / 2, C, sym);
+    ax.drawImage(one, 0, 0, C, C, 0, sym * FEAT, FEAT, FEAT);
+  }
+  return (emakiTemplates[key] = features(ax.getImageData(0, 0, FEAT, FEAT * 256).data, 256));
+}
+function bestSym(f, tpl) {
+  let best = 0, bestScore = -Infinity;
+  for (let s = 0; s < 256; s++) { let sc = 0; const t = tpl[s]; for (let k = 0; k < f.length; k++) sc += f[k] * t[k]; if (sc > bestScore) { bestScore = sc; best = s; } }
+  return [best, bestScore];
+}
+async function readEmaki(img) {
+  const W = img.width, H = img.height;
+  for (const [rows, nx] of EDGE_CONFIGS) {
+    const { L, n, nsym, cap } = emakiCode(W, H, rows, nx);
+    if (cap < 1) continue;
+    const atlas = document.createElement('canvas'); atlas.width = FEAT; atlas.height = FEAT * L.cells.length;
+    const ax = atlas.getContext('2d', { willReadFrequently: true });
+    ax.imageSmoothingQuality = 'high';
+    L.cells.forEach((cell, i) => ax.drawImage(img, cell.x - L.C / 2, cell.y - L.C / 2, L.C, L.C, 0, i * FEAT, FEAT, FEAT));
+    const feats = features(ax.getImageData(0, 0, FEAT, FEAT * L.cells.length).data, L.cells.length);
+    for (const key of Object.keys(EMAKI)) {
+      const tpl = await getEmakiTemplates(key);
+      // まず16個だけ くらべて、似ていなければ この並べ方・この絵巻ではないとみなして とばす
+      const probe = feats.slice(0, 16).map((f) => bestSym(f, tpl)[1]);
+      if (probe.reduce((a, b) => a + b, 0) / probe.length < 0.6) continue;
+      const code = feats.slice(0, n).map((f, i) => bestSym(f, tpl)[0] ^ (maskVal(i) & 255));
+      try {
+        const [len, ...rest] = rsDecode(code, nsym);
+        if (len < 1 || len > cap) continue;
+        return { kind: 'emaki', W, H, rows, nx, depth: L.depth, C: L.C, text: await unpackText(rest.slice(0, len)) };
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
 async function buildFrame({ text, designKey, aspect, size = 1600 }) {
-  const d = DESIGNS[designKey], k = KINDS[d.kind];
+  const d = DESIGNS[designKey];
+  if (d.kind === 'emaki') return buildEmaki(text, designKey, aspect, size);
+  const k = KINDS[d.kind];
   const payload = await packText(text);
   for (const L of k.Ls) {
     const { Wu, Hu } = frameGeom(L, aspect);
@@ -559,11 +707,15 @@ async function readFrame(img) {
       }
     }
   }
-  return null;
+  return readEmaki(img);
 }
 
 // 窓(写真・動画が入るところ)の位置。W×H はフレーム画像の大きさ
 function windowRect(info, W, H) {
+  if (info.kind === 'emaki') {
+    const k = W / info.W, m = Math.round((info.opaque ? info.depth + 0.45 * info.C : info.depth - 0.2 * info.C) * k);
+    return { x: m, y: m, w: W - 2 * m, h: H - 2 * m };
+  }
   const uw = W / info.Wu, uh = H / info.Hu, x0 = Math.round(info.inset * uw), y0 = Math.round(info.inset * uh);
   return { x: x0, y: y0, w: Math.round((info.Wu - info.inset) * uw) - x0, h: Math.round((info.Hu - info.inset) * uh) - y0 };
 }
@@ -622,10 +774,18 @@ function drawDestLabel(x, info, W, H) {
   x.restore();
 }
 function composite(x, frameImg, info, media, mw, mh, view) {
+  const r = windowRect(info, frameImg.width, frameImg.height);
   x.clearRect(0, 0, frameImg.width, frameImg.height);
-  x.drawImage(frameImg, 0, 0);
-  drawMedia(x, media, mw, mh, windowRect(info, frameImg.width, frameImg.height), view);
+  if (info.opaque) { x.drawImage(frameImg, 0, 0); drawMedia(x, media, mw, mh, r, view); }
+  else { drawMedia(x, media, mw, mh, r, view); x.drawImage(frameImg, 0, 0); }
   drawDestLabel(x, info, frameImg.width, frameImg.height);
+}
+// フレーム画像の まんなかが 透明かどうか(写真入りの画像を フレームとして えらんだときは 透明でない)
+function isOpaqueCenter(img) {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(img, img.width / 2 - 4, img.height / 2 - 4, 8, 8, 0, 0, 8, 8);
+  return x.getImageData(0, 0, 1, 1).data[3] > 200;
 }
 </script>
 
@@ -690,12 +850,13 @@ async function saveBlob(blob, name) {
 
 // ===== つくる =====
 let media = null, isVideo = false, mediaW = 0, mediaH = 0;
-let frameMode = 'new', design = 'yokai', savedFrame = null;
+let frameMode = 'new', design = 'chojugiga', savedFrame = null;
 let frameImg = null, frameInfo = null, view = { zoom: 1, dx: 0, dy: 0 };
 // デザインの見本アイコン
 function designIcon(key) {
   const c = document.createElement('canvas'); c.width = c.height = 48;
   const x = c.getContext('2d'), d = DESIGNS[key];
+  if (d.kind === 'emaki') { x.fillStyle = d.bg; x.fillRect(0, 0, 48, 48); return `${EMAKI[key].dir}1.png`; }
   if (d.kind === 'parade') { x.fillStyle = d.bg; x.fillRect(0, 0, 48, 48); drawTile(x, key, 0, false, 0, 0, 48); }
   else if (d.kind === 'qr') { x.fillStyle = '#fff'; x.fillRect(0, 0, 48, 48); x.fillStyle = '#111'; [[2, 2], [28, 2], [2, 28]].forEach(([a, b]) => { x.fillRect(a, b, 18, 18); x.fillStyle = '#fff'; x.fillRect(a + 5, b + 5, 8, 8); x.fillStyle = '#111'; }); for (let i = 0; i < 12; i++) if ((i * 7) % 3) x.fillRect(26 + (i % 4) * 5, 26 + Math.floor(i / 4) * 5, 4, 4); }
   else { x.fillStyle = '#0a1030'; x.fillRect(0, 0, 48, 48); drawStar(x, 30, 18, 6, '#fff6c8'); drawStar(x, 14, 34, 4, '#d6e4ff'); }
@@ -746,7 +907,7 @@ async function doMake() {
     if (!savedFrame) { $('make-msg').textContent = 'フレームを えらんでください'; return; }
     const info = await readFrame(savedFrame);
     if (!info) { $('make-msg').textContent = 'フレームを 読みとれませんでした。このページで作った フレームを えらんでください'; return; }
-    frameImg = savedFrame; frameInfo = info;
+    frameImg = savedFrame; frameInfo = { ...info, opaque: isOpaqueCenter(savedFrame) };
   }
   view = { zoom: 1, dx: 0, dy: 0 }; $('zoom').value = 1;
   $('preview').width = frameImg.width; $('preview').height = frameImg.height;
