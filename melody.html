@@ -99,6 +99,7 @@
     <div id="listen-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="label">きょくの なかみ</div>
       <div class="win result" id="listen-out"></div>
+      <div class="info hidden" id="listen-dest" style="font-size:15px"></div>
       <div class="actions">
         <button id="listen-copy">なかみを コピー</button>
         <a class="btn primary" id="listen-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
@@ -452,6 +453,36 @@ async function togglePlay() {
     if (el !== lastEl) { if (lastEl) lastEl.classList.remove('playing'); if (el) el.classList.add('playing'); lastEl = el; }
   }, 30);
 }
+// 行き先のサイトを 文字で示す。よく知られたサービスは ドメインが完全に一致したときだけ 名前を出す
+// (youtube.com.example.xyz のような にせのURLに だまされないように)
+const KNOWN_SITES = [
+  ['YouTube', ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be']],
+  ['X', ['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com']],
+  ['Instagram', ['instagram.com', 'www.instagram.com']],
+  ['TikTok', ['tiktok.com', 'www.tiktok.com', 'vt.tiktok.com', 'vm.tiktok.com']],
+  ['note', ['note.com']],
+  ['LINE', ['line.me', 'liff.line.me']],
+  ['Googleマップ', ['maps.app.goo.gl']],
+];
+function siteOf(text) {
+  const t = text.trim();
+  if (/\s/.test(t)) return null;
+  let u; try { u = new URL(t); } catch (e) { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.toLowerCase(), hit = KNOWN_SITES.find(([, hs]) => hs.includes(host));
+  return { url: u.href, host, name: hit ? hit[0] : null };
+}
+const siteLabel = (s) => (s.name ? `${s.name}（${s.host}）` : s.host);
+// 読みとった結果の「このばしょへ いく」と 行き先の表示。知らないサイトは 開く前に たしかめる
+function showDestination(text, linkId, destId) {
+  const s = siteOf(text), link = document.getElementById(linkId), dest = document.getElementById(destId);
+  link.classList.toggle('hidden', !s); dest.classList.toggle('hidden', !s);
+  if (!s) return;
+  link.href = s.url;
+  dest.textContent = s.name ? `行き先：${siteLabel(s)}` : `行き先：${s.host}（よく知られたサイトでは ありません。開く前に たしかめてください）`;
+  dest.style.color = s.name ? '#7ad17a' : '#ffb46a';
+  link.onclick = s.name ? null : (e) => { if (!confirm(`${s.host} を ひらきます。よろしいですか？`)) e.preventDefault(); };
+}
 function wavBlob(buf) {
   const d = buf.getChannelData(0), sr = buf.sampleRate, ab = new ArrayBuffer(44 + d.length * 2), v = new DataView(ab);
   const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
@@ -500,11 +531,7 @@ function showResult(r) {
   if (r.status !== 'done') return;
   $('listen-out').textContent = r.text;
   $('listen-copy').onclick = () => navigator.clipboard.writeText(r.text).catch(() => {});
-  let url = null;
-  if (!/\s/.test(r.text.trim())) { try { url = new URL(r.text.trim()); } catch (e) {} }
-  const ok = url && (url.protocol === 'https:' || url.protocol === 'http:');
-  $('listen-link').classList.toggle('hidden', !ok);
-  if (ok) $('listen-link').href = url.href;
+  showDestination(r.text, 'listen-link', 'listen-dest');
 }
 function stopMic(msg) {
   if (!mic) return;

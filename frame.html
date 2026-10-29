@@ -105,6 +105,7 @@
     <div id="read-result" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="label">フレームの なかみ</div>
       <div class="win result" id="read-out"></div>
+      <div class="info hidden" id="read-dest" style="font-size:15px"></div>
       <div class="actions">
         <button id="read-copy">なかみを コピー</button>
         <a class="btn primary" id="read-link" target="_blank" rel="noopener noreferrer">このばしょへ いく</a>
@@ -514,7 +515,7 @@ async function buildFrame({ text, designKey, aspect, size = 1600 }) {
     else if (d.kind === 'qr') drawQR(x, Wu, Hu, U, slots, syms);
     else drawStars(x, Wu, Hu, U, slots, syms);
     x.clearRect(inset * U, inset * U, (Wu - 2 * inset) * U, (Hu - 2 * inset) * U);
-    c.frameInfo = { Wu, Hu, inset };
+    c.frameInfo = { Wu, Hu, inset, text };
     return c;
   }
   throw new Error('too long');
@@ -576,10 +577,55 @@ function drawMedia(x, media, mw, mh, r, view) {
   x.restore();
 }
 // フレーム(透明な窓のフレームでも、写真入りの画像でも)の上から、窓に写真・動画を描く
+// 行き先のサイトを 文字で示す。よく知られたサービスは ドメインが完全に一致したときだけ 名前を出す
+// (youtube.com.example.xyz のような にせのURLに だまされないように)
+const KNOWN_SITES = [
+  ['YouTube', ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be']],
+  ['X', ['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com']],
+  ['Instagram', ['instagram.com', 'www.instagram.com']],
+  ['TikTok', ['tiktok.com', 'www.tiktok.com', 'vt.tiktok.com', 'vm.tiktok.com']],
+  ['note', ['note.com']],
+  ['LINE', ['line.me', 'liff.line.me']],
+  ['Googleマップ', ['maps.app.goo.gl']],
+];
+function siteOf(text) {
+  const t = text.trim();
+  if (/\s/.test(t)) return null;
+  let u; try { u = new URL(t); } catch (e) { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.toLowerCase(), hit = KNOWN_SITES.find(([, hs]) => hs.includes(host));
+  return { url: u.href, host, name: hit ? hit[0] : null };
+}
+const siteLabel = (s) => (s.name ? `${s.name}（${s.host}）` : s.host);
+// 読みとった結果の「このばしょへ いく」と 行き先の表示。知らないサイトは 開く前に たしかめる
+function showDestination(text, linkId, destId) {
+  const s = siteOf(text), link = document.getElementById(linkId), dest = document.getElementById(destId);
+  link.classList.toggle('hidden', !s); dest.classList.toggle('hidden', !s);
+  if (!s) return;
+  link.href = s.url;
+  dest.textContent = s.name ? `行き先：${siteLabel(s)}` : `行き先：${s.host}（よく知られたサイトでは ありません。開く前に たしかめてください）`;
+  dest.style.color = s.name ? '#7ad17a' : '#ffb46a';
+  link.onclick = s.name ? null : (e) => { if (!confirm(`${s.host} を ひらきます。よろしいですか？`)) e.preventDefault(); };
+}
+// 窓の右下に 行き先を 文字で のせる(データの帯には かからない)
+function drawDestLabel(x, info, W, H) {
+  const s = siteOf(info.text);
+  if (!s) return;
+  const r = windowRect(info, W, H), label = `→ ${siteLabel(s)}`;
+  let fs = Math.max(12, Math.round(Math.min(W, H) * 0.026));
+  x.font = `${fs}px "DotGothic16", sans-serif`;
+  while (x.measureText(label).width > r.w * 0.8 && fs > 10) { fs--; x.font = `${fs}px "DotGothic16", sans-serif`; }
+  const pad = fs * 0.6, h = fs * 1.8, w = x.measureText(label).width + pad * 2, bx = r.x + r.w - w - fs * 0.5, by = r.y + r.h - h - fs * 0.5;
+  x.save();
+  x.fillStyle = 'rgba(0,0,0,0.6)'; x.beginPath(); x.roundRect(bx, by, w, h, h / 2); x.fill();
+  x.fillStyle = '#ffffff'; x.textBaseline = 'middle'; x.fillText(label, bx + pad, by + h / 2);
+  x.restore();
+}
 function composite(x, frameImg, info, media, mw, mh, view) {
   x.clearRect(0, 0, frameImg.width, frameImg.height);
   x.drawImage(frameImg, 0, 0);
   drawMedia(x, media, mw, mh, windowRect(info, frameImg.width, frameImg.height), view);
+  drawDestLabel(x, info, frameImg.width, frameImg.height);
 }
 </script>
 
@@ -737,6 +783,7 @@ async function saveResult() {
 async function saveFrameOnly() {
   const c = document.createElement('canvas'); c.width = frameImg.width; c.height = frameImg.height;
   c.getContext('2d').drawImage(frameImg, 0, 0);
+  drawDestLabel(c.getContext('2d'), frameInfo, c.width, c.height);
   saveBlob(await toBlob(c, 'image/png'), stampName('fukkatsu-frame-only', 'png'));
 }
 // 動画: 最初から最後まで再生しながら、フレームと重ねた絵を録画する(音もそのまま)
@@ -803,11 +850,7 @@ $('read-in').addEventListener('change', async (e) => {
   const text = info.text;
   $('read-out').textContent = text;
   $('read-copy').onclick = () => navigator.clipboard.writeText(text).catch(() => {});
-  let url = null;
-  if (!/\s/.test(text.trim())) { try { url = new URL(text.trim()); } catch (err) {} }
-  const ok = url && (url.protocol === 'https:' || url.protocol === 'http:');
-  $('read-link').classList.toggle('hidden', !ok);
-  if (ok) $('read-link').href = url.href;
+  showDestination(text, 'read-link', 'read-dest');
   $('read-result').classList.remove('hidden');
 });
 
