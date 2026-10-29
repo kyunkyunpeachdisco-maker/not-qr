@@ -268,38 +268,53 @@ function addAvcChunk(muxer, chunk, meta, state) {
 }
 // AAC の設定(AudioSpecificConfig)が ついてこないときは 自分で作る
 function addAacChunk(muxer, chunk, meta, state) {
-  if (!state.sent && !(meta && meta.decoderConfig && meta.decoderConfig.description)) {
-    const fi = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000].indexOf(state.sampleRate);
-    const asc = new Uint8Array([(2 << 3) | (fi >> 1), ((fi & 1) << 7) | (state.channels << 3)]);
-    meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: state.sampleRate, numberOfChannels: state.channels, description: asc.buffer } };
-  }
+  let raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
+  // 先頭に ADTS の見出しが ついていたら はずす(mp4 には 中身だけを入れる)
+  const adts = raw.length > 7 && raw[0] === 0xff && (raw[1] & 0xf0) === 0xf0;
+  if (adts) raw = raw.subarray(raw[1] & 1 ? 7 : 9);
+  const desc = meta && meta.decoderConfig && meta.decoderConfig.description;
+  if (!state.sent) {
+    const d = desc ? new Uint8Array(desc.buffer || desc) : null;
+    state.diag = `${adts ? 'ADTS' : 'raw'} desc${d ? d.length : 'なし'}${d ? ':' + [...d.slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('') : ''} ts${chunk.timestamp}`;
+    // 設定(AudioSpecificConfig)が ないか、ADTS のときは 自分で作る
+    if (!d || adts) {
+      const fi = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000].indexOf(state.sampleRate);
+      const asc = new Uint8Array([(2 << 3) | (fi >> 1), ((fi & 1) << 7) | (state.channels << 3)]);
+      meta = { decoderConfig: { codec: 'mp4a.40.2', sampleRate: state.sampleRate, numberOfChannels: state.channels, description: asc.buffer } };
+    }
+  } else meta = undefined;
   state.sent = true;
-  const raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
-  muxer.addAudioChunkRaw(raw, chunk.type, chunk.timestamp, okDur(chunk.duration) ? chunk.duration : Math.round((1024 / state.sampleRate) * 1e6), meta);
+  // 時刻は 1024サンプルずつ 自分で数える(ブラウザによって 時刻が ずれたり 同じだったりするため)
+  const step = (1024 / state.sampleRate) * 1e6, n = state.n || 0;
+  state.n = n + 1;
+  muxer.addAudioChunkRaw(raw, 'key', Math.round(n * step), Math.round(step), meta);
 }
 // onStage(なまえ): いま どの段階か(止まったときに どこで止まったか わかるように)
 async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress, onStage = () => {} }) {
-  if (!window.VideoEncoder || !window.VideoFrame || (audio && !window.AudioEncoder)) return null;
+  // encodeVideoFile.note: どう作ったか(作れなかった理由)。画面に出して、iPhoneなどで 何が起きたか わかるようにする
+  const no = (why) => { encodeVideoFile.note = why; return null; };
+  if (!window.VideoEncoder || !window.VideoFrame) return no('VideoEncoderなし');
+  if (audio && !window.AudioEncoder) return no('AudioEncoderなし');
   const W = canvas.width, H = canvas.height;
   let vconf = null;
   for (const codec of ['avc1.640033', 'avc1.4d0033', 'avc1.42e033']) {
     const c = { codec, width: W, height: H, bitrate, framerate: fps, avc: { format: 'avc' } };
     try { if ((await VideoEncoder.isConfigSupported(c)).supported) { vconf = c; break; } } catch (e) {}
   }
-  if (!vconf) return null;
+  if (!vconf) return no('H.264に未対応');
   let aconf = null;
   if (audio) {
     aconf = { codec: 'mp4a.40.2', sampleRate: audio.sampleRate, numberOfChannels: audio.channels.length, bitrate: 192000 };
-    try { if (!(await AudioEncoder.isConfigSupported(aconf)).supported) return null; } catch (e) { return null; }
+    try { if (!(await AudioEncoder.isConfigSupported(aconf)).supported) return no(`AACに未対応 ${aconf.sampleRate}Hz ${aconf.numberOfChannels}ch`); } catch (e) { return no(`AACに未対応 ${e.message}`); }
   }
-  try { await loadScriptOnce('https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js'); } catch (e) { return null; }
+  try { await loadScriptOnce('https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js'); } catch (e) { return no('mp4-muxerを読めない'); }
   const target = new Mp4Muxer.ArrayBufferTarget();
   const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: W, height: H }, audio: aconf ? { codec: 'aac', sampleRate: aconf.sampleRate, numberOfChannels: aconf.numberOfChannels } : undefined, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
   let failed = null;
   const vstate = { codec: vconf.codec, W, H, frameDur: Math.round(1e6 / fps) };
   const venc = new VideoEncoder({ output: (chunk, meta) => { try { addAvcChunk(muxer, chunk, meta, vstate); } catch (e) { failed = e; } }, error: (e) => { failed = e; } });
   venc.configure(vconf);
-  let count = 0, lastKey = -Infinity;
+  let count = 0, lastKey = -Infinity, astate = {};
   const emit = (t) => {
     const frame = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6) });
     const key = t - lastKey >= 2;  // 2秒ごとに キーフレーム
@@ -323,7 +338,7 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
   await withTimeout(venc.flush(), 30000, 'video flush');
   if (aconf) {
     onStage('おとを つくっています');
-    const astate = { sampleRate: aconf.sampleRate, channels: aconf.numberOfChannels };
+    astate = { sampleRate: aconf.sampleRate, channels: aconf.numberOfChannels };
     const aenc = new AudioEncoder({ output: (chunk, meta) => { try { addAacChunk(muxer, chunk, meta, astate); } catch (e) { failed = e; } }, error: (e) => { failed = e; } });
     aenc.configure(aconf);
     const len = audio.channels[0].length, step = 4096;
@@ -349,5 +364,8 @@ async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio
     v.onerror = () => { clearTimeout(tm); res(false); };
     v.src = url;
   });
-  return ok ? blob : null;
+  if (!ok) return no('長さが合わない');
+  const peak = audio ? audio.channels.reduce((m, ch) => { for (let i = 0; i < ch.length; i += 64) m = Math.max(m, Math.abs(ch[i])); return m; }, 0) : 0;
+  encodeVideoFile.note = audio ? `音: AAC ${audio.channels.length}ch ${(audio.channels[0].length / audio.sampleRate).toFixed(1)}秒 大きさ${peak.toFixed(2)} ${astate.n || 0}こ ${astate.diag || ''}` : '音なし';
+  return blob;
 }

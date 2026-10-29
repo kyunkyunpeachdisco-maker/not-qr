@@ -85,8 +85,8 @@
 
 </div>
 
-<script src="js/common.js?v=1.12.4"></script>
-<script src="js/melody-core.js?v=1.12.4"></script>
+<script src="js/common.js?v=1.12.6"></script>
+<script src="js/melody-core.js?v=1.12.6"></script>
 
 <script>
 // ===== つくる =====
@@ -182,12 +182,14 @@ async function saveVideo() {
     };
     // まず 1コマずつ 書きだす。使えないブラウザなら 録画で作る
     let blob = null;
+    encodeVideoFile.note = '';
     try {
       blob = await encodeVideoFile({ canvas: c, duration: dur, draw: drawAt, audio: { sampleRate: buf.sampleRate, channels: [buf.getChannelData(0)] }, bitrate: 6000000,
         onStage: (st) => { btn.textContent = `${st}…`; },
         onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
     } catch (e) { blob = null; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${e && e.message}）`; }
-    if (blob) { saveBlobLater(blob, stampName('fukkatsu-melody', 'mp4')); return; }
+    if (blob) { $('make-msg').textContent = `✓ どうがが できました（${encodeVideoFile.note}）`; saveBlobLater(blob, stampName('fukkatsu-melody', 'mp4')); return; }
+    if (encodeVideoFile.note) $('make-msg').textContent = `録画で 作ります（${encodeVideoFile.note}）`;
     scroll = 0;
     const stream = c.captureStream(30), src = ac.createBufferSource(), dest = ac.createMediaStreamDestination();
     src.buffer = buf; src.connect(dest);

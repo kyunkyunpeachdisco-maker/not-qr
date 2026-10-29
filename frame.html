@@ -115,8 +115,8 @@
 
 </div>
 
-<script src="js/common.js?v=1.12.4"></script>
-<script src="js/frame-core.js?v=1.12.4"></script>
+<script src="js/common.js?v=1.12.6"></script>
+<script src="js/frame-core.js?v=1.12.6"></script>
 
 <script>
 function choiceGroup(id, entries, initial, onPick) {
@@ -285,7 +285,7 @@ async function saveFrameOnly() {
   saveBlob(await toBlob(c, 'image/png'), stampName('fukkatsu-frame-only', 'png'));
 }
 // 動画: 最初から最後まで再生しながら、フレームと重ねた絵を録画する(音もそのまま)
-let audioRoute = null;
+let audioRoute = null, capNote = '';
 async function saveVideo() {
   // 進み具合は 押したボタンに出す(上のメッセージ欄は スクロールで 見えないことがあるため)
   const btn = $('save-btn'), label = btn.textContent;
@@ -299,6 +299,7 @@ async function saveVideo() {
   document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = true; });
   // まず 1コマずつ 書きだす: 元の動画を その時刻に 合わせて 1コマずつ 取りだし、フレームを重ねる(音は 元の動画の音)
   let blob = null;
+  encodeVideoFile.note = '';
   try {
     let audio = null;
     try {
@@ -307,12 +308,14 @@ async function saveVideo() {
     } catch (err) { audio = null; }
     // iPhoneは 動画ファイルから 音を 取りだせないことがある。そのときは 再生しながら 音を 録る(聞こえないように)
     let cap = null;
+    capNote = audio ? '・ファイルから' : '';
     if (!audio && audioRoute) {
       const ac = audioRoute.ac, proc = ac.createScriptProcessor(4096, 2, 2), mute = ac.createGain(), bufs = [[], []];
       mute.gain.value = 0; audioRoute.src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
       cap = { on: false, bufs, stop: () => { try { audioRoute.src.disconnect(proc); proc.disconnect(); mute.disconnect(); } catch (e) {} } };
       proc.onaudioprocess = (e) => { if (cap.on) for (let k = 0; k < 2; k++) bufs[k].push(new Float32Array(e.inputBuffer.getChannelData(Math.min(k, e.inputBuffer.numberOfChannels - 1)))); };
       audio = { sampleRate: ac.sampleRate, channels: [new Float32Array(1), new Float32Array(1)] };
+      capNote = `・再生から録音 ${ac.state}`;
     }
     const enc = document.createElement('canvas'); enc.width = frameImg.width + (frameImg.width & 1); enc.height = frameImg.height + (frameImg.height & 1);
     const ex = enc.getContext('2d');
@@ -337,7 +340,9 @@ async function saveVideo() {
       onStage: (st) => { btn.textContent = `${st}…`; },
       onProgress: (p) => { btn.textContent = `どうがを つくっています… ${Math.round(p * 100)}%`; } });
   } catch (err) { blob = null; v.muted = true; $('make-msg').textContent = `うまく 書きだせなかったので、録画で 作りなおします（${err && err.message}）`; }
+  if (!blob && encodeVideoFile.note) $('make-msg').textContent = `録画で 作ります（${encodeVideoFile.note}）`;
   if (blob) {
+    $('make-msg').textContent = `✓ どうがが できました（${encodeVideoFile.note}${capNote}）`;
     v.muted = true;
     document.querySelectorAll('#make-result button').forEach((b) => { b.disabled = false; });
     btn.textContent = label; $('video-wait').classList.add('hidden');
