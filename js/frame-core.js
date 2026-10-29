@@ -301,8 +301,16 @@ function classifyQR(px, W, Wu, Hu, slots, uw, uh) {
 const BAND_CHOICES = { ほそい: 0.05, ふつう: 0.08, ふとい: 0.12 };
 // 絵巻・じぶんの素材は、絵を小さくしすぎると 縮小に弱くなるので、入りきらないときは 帯を この段階で 太くする
 const BAND_STEPS = [0.05, 0.06, 0.07, 0.08, 0.1, 0.12, 0.14, 0.17, 0.2];
-// 絵の大きさ「おおきい」: 絵が 長い辺の 1/18 以上に なるまで 帯を太くする
-const BIG_NX = 18;
+// 絵の大きさ「おおきい」: いちばん太い帯まで 使って 入る いちばん大きい絵にする(同じ大きさなら 細い帯)
+function bigNx(W, H, len, codeOf) {
+  let best = EMAKI_NX[EMAKI_NX.length - 1];
+  for (const b of BAND_STEPS) for (const nx of EMAKI_NX) {
+    if (nx >= best) break;
+    const k = codeOf(b * Math.min(W, H), nx);
+    if (k.ok && len <= k.cap) { best = nx; break; }
+  }
+  return best;
+}
 const WIN_Q = 250; // 窓の位置は 画像の幅・高さを250等分した目盛りで データに入れる
 // 外がわの大きさ。outerAspect が null なら「写真に合わせる」(窓のまわりに 同じ太さの帯)
 function outerSize(size, photoAspect, outerAspect, band) {
@@ -401,13 +409,14 @@ function drawTornPaper(x, W, H, r, C, bg) {
 }
 async function buildEmaki(text, designKey, W, H, band, photoAspect, big) {
   const sprites = await loadEmaki(designKey), payload = await packText(text);
+  const target = big ? bigNx(W, H, payload.length, (bp, nx) => { const k = emakiCode(W, H, bp, nx); return { ok: k.L.cells.length >= 16, cap: k.cap }; }) : 0;
   // 絵は 入る範囲で いちばん大きく。下限の大きさでも 入らなければ 帯を太くする
   for (const b of BAND_STEPS.filter((v) => v >= band - 1e-9)) for (const nx of EMAKI_NX) {
     const bandPx = b * Math.min(W, H), win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
     const { L, n, nsym, cap } = emakiCode(W, H, bandPx, nx);
     if (L.cells.length < 16 || payload.length > cap) continue;
-    // おおきい: この帯で いちばん大きい絵でも 小さければ、次の太さへ(いちばん太い帯なら そのまま)
-    if (big && nx > BIG_NX && b < BAND_STEPS[BAND_STEPS.length - 1]) break;
+    // おおきい: この帯で いちばん大きい絵でも 目標より小さければ、次の太さへ
+    if (big && nx > target) break;
     const msg = [...winBytes(win), payload.length, ...payload];
     while (msg.length < n - nsym) msg.push(0);
     const code = rsEncode(msg, nsym);
@@ -579,11 +588,12 @@ function customCode(W, H, bandPx, nx, count) {
 }
 async function buildCustom(text, sprites, W, H, band, photoAspect, big) {
   const count = sprites.length, payload = await packText(text);
+  const target = big ? bigNx(W, H, payload.length, (bp, nx) => { const k = customCode(W, H, bp, nx, count); return { ok: k.n >= 16, cap: k.cap }; }) : 0;
   for (const b of BAND_STEPS.filter((v) => v >= band - 1e-9)) for (const nx of EMAKI_NX) {
     const bandPx = b * Math.min(W, H), win = placeWindow(W, H, bandPx, photoAspect), r = windowPx(win, W, H);
     const { L, n, nsym, cap } = customCode(W, H, bandPx, nx, count);
     if (n < 16 || payload.length > cap) continue;
-    if (big && nx > BIG_NX && b < BAND_STEPS[BAND_STEPS.length - 1]) break;
+    if (big && nx > target) break;
     const msg = [...winBytes(win), payload.length, ...payload];
     while (msg.length < n - nsym) msg.push(0);
     const code = rsEncode(msg, nsym);
