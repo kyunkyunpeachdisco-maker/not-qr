@@ -76,6 +76,7 @@
       <div class="actions">
         <button class="primary" id="play-btn" onclick="togglePlay()">えんそう</button>
         <button onclick="saveWav()">おとを ほぞん</button>
+        <button class="wide" id="video-btn" onclick="saveVideo()">えんそうを どうがで ほぞん</button>
       </div>
       <div class="win score" id="score"></div>
       <div class="info">はじめの1小節は前奏、つづく「ソラソラ」が合図です。合図のあとの音に、ことばが入っています。</div>
@@ -122,20 +123,85 @@ async function togglePlay() {
   srcNode.start(start - 0.1);
   $('play-btn').textContent = 'とめる';
   // 楽譜の いま鳴っている音を赤くする
-  const els = [...document.querySelectorAll('#score .abcjs-note, #score .abcjs-rest')];
+  const slotEl = slotElements();
   let lastEl = null;
-  const slotEl = [];
-  for (let b = 0, e = 0; b < songBars(song); b++) {
-    const notes = song.melody.slice(b * 8, b * 8 + 8);
-    if (b === songBars(song) - 1 || notes.every((m) => m === null)) { for (let s = 0; s < 8; s++) slotEl.push(els[e]); e++; }
-    else for (let s = 0; s < 8; s++) slotEl.push(els[e++]);
-  }
   playTimer = setInterval(() => {
     const t = ctx.currentTime - start;
     if (t > dur) return stopPlay();
     const el = slotEl[Math.floor(t / T)];
     if (el !== lastEl) { if (lastEl) lastEl.classList.remove('playing'); if (el) el.classList.add('playing'); lastEl = el; }
   }, 30);
+}
+// 1音(8分音符)ごとに、楽譜の どの音符(休符)に あたるか
+function slotElements() {
+  const els = [...document.querySelectorAll('#score .abcjs-note, #score .abcjs-rest')], slotEl = [];
+  for (let b = 0, e = 0; b < songBars(song); b++) {
+    const notes = song.melody.slice(b * 8, b * 8 + 8);
+    if (b === songBars(song) - 1 || notes.every((m) => m === null)) { for (let s = 0; s < 8; s++) slotEl.push(els[e]); e++; }
+    else for (let s = 0; s < 8; s++) slotEl.push(els[e++]);
+  }
+  return slotEl;
+}
+// 演奏を 動画にする: 楽譜を絵にして、いま鳴っている音に 赤い印をつけながら 音といっしょに録画する
+async function saveVideo() {
+  const svg = document.querySelector('#score svg');
+  if (!svg) return;
+  const btn = $('video-btn'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'じゅんびちゅう…';
+  const ac = new AudioContext();
+  try {
+    // 楽譜(SVG)を 画像にする
+    const vb = svg.viewBox.baseVal, clone = svg.cloneNode(true);
+    clone.setAttribute('width', vb.width); clone.setAttribute('height', vb.height); clone.style.color = '#1a1a2a';
+    clone.querySelectorAll('.playing').forEach((e) => e.classList.remove('playing'));
+    const scoreImg = await loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone)));
+    const boxes = slotElements().map((e) => (e ? e.getBBox() : null));
+    // 画面: 4:5。楽譜が入りきらないときは 鳴っている行に あわせて 上下に動かす
+    const W = 1080, H = 1350, pad = 40, sc = (W - pad * 2 - 40) / vb.width, maxH = H - 150 - 140;
+    // 楽譜が短いときは 紙の部分を 楽譜の高さにして 上下まんなかに置く
+    const viewH = Math.min(maxH, vb.height * sc + 40), top = 150 + (maxH - viewH) / 2;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d'), stream = c.captureStream(30);
+    const buf = await renderSong(song, ac.sampleRate), src = ac.createBufferSource(), dest = ac.createMediaStreamDestination();
+    src.buffer = buf; src.connect(dest);
+    dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+    const mime = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+    if (!mime) throw new Error('no recorder');
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }), chunks = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((ok) => { rec.onstop = ok; });
+    let scroll = 0, raf = 0;
+    const startAt = ac.currentTime + 0.2, dur = buf.duration;
+    const draw = () => {
+      const t = ac.currentTime - startAt, slot = Math.floor((t - 0.1) / T), box = boxes[slot];
+      x.fillStyle = '#05060d'; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#ffd23b'; x.font = '56px "DotGothic16", monospace'; x.textAlign = 'center'; x.fillText('ふっかつのメロディ', W / 2, top - 50);
+      x.fillStyle = '#f4efdc'; x.fillRect(pad, top, W - pad * 2, viewH);
+      if (box) { const want = box.y * sc - viewH * 0.35; scroll += (Math.max(0, Math.min(vb.height * sc - viewH + 40, want)) - scroll) * 0.15; }
+      x.save(); x.beginPath(); x.rect(pad, top, W - pad * 2, viewH); x.clip();
+      x.translate(pad + 20, top + 20 - scroll); x.scale(sc, sc);
+      x.drawImage(scoreImg, 0, 0, vb.width, vb.height);
+      if (box && t >= 0.1 && t < dur) { x.fillStyle = 'rgba(224,56,42,0.35)'; x.fillRect(box.x - 3, box.y - 3, box.width + 6, box.height + 6); }
+      x.restore();
+      x.fillStyle = '#23243a'; x.fillRect(pad, H - 90, W - pad * 2, 14);
+      x.fillStyle = '#4cd24c'; x.fillRect(pad, H - 90, (W - pad * 2) * Math.max(0, Math.min(1, t / dur)), 14);
+      x.fillStyle = '#b6b6d8'; x.font = '30px "DotGothic16", monospace'; x.fillText('ききとると ことばが ふっかつします', W / 2, H - 30);
+      btn.textContent = `どうがを つくっています… ${Math.max(0, Math.min(100, Math.round((t / dur) * 100)))}%`;
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    rec.start();
+    src.start(startAt);
+    await new Promise((ok) => { src.onended = ok; });
+    await new Promise((ok) => setTimeout(ok, 300));
+    rec.stop(); cancelAnimationFrame(raf);
+    await stopped;
+    saveBlob(new Blob(chunks, { type: mime.split(';')[0] }), stampName('fukkatsu-melody', mime.includes('mp4') ? 'mp4' : 'webm'));
+  } catch (e) {
+    $('make-msg').textContent = 'このブラウザでは どうがを 作れませんでした';
+  } finally {
+    ac.close(); btn.disabled = false; btn.textContent = label;
+  }
 }
 function wavBlob(buf) {
   const d = buf.getChannelData(0), sr = buf.sampleRate, ab = new ArrayBuffer(44 + d.length * 2), v = new DataView(ab);

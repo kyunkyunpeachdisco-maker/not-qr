@@ -132,8 +132,12 @@ async function readFile(file, fromCamera) {
     addMe(v);
     const w = working('フレームを さがしています…');
     let info = null; try { info = await readMedia(file); } catch (e) {}
+    if (info) { w.remove(); return addResult('フレーム', info.text); }
+    // フレームが なければ、動画の音から メロディを ききとる(えんそうの動画)
+    let r = { status: 'fail' };
+    try { const ctx = new AudioContext(), buf = await ctx.decodeAudioData(await file.arrayBuffer()); ctx.close(); r = await decodeSamples(buf.getChannelData(0), buf.sampleRate); } catch (e) {}
     w.remove();
-    return info ? addResult('フレーム', info.text) : addError('フレームを 見つけられませんでした', 'このアプリで作った フレームつきの動画を、切りとらずに そのまま えらんでください。');
+    return r.status === 'done' ? addResult('メロディの どうが', r.text) : addError('フレームも メロディも 見つけられませんでした', 'このアプリで作った 動画を、切りとらずに そのまま えらんでください。');
   }
   if (isAudio(file)) {
     const au = el('audio'); au.src = url; au.controls = true;
