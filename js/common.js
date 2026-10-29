@@ -240,10 +240,11 @@ function annexbNals(u8) {
   if (start >= 0) out.push(u8.subarray(start));
   return out;
 }
+const okDur = (d) => Number.isFinite(d) && d >= 0;
 // Safariは コマの長さ(duration)も つけてこないことがあるので、ないときは 1コマぶんの長さにする
 function addAvcChunk(muxer, chunk, meta, state) {
   const raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
-  const dur = chunk.duration ?? state.frameDur;
+  const dur = okDur(chunk.duration) ? chunk.duration : state.frameDur;
   if (meta && meta.decoderConfig) { state.made = true; return muxer.addVideoChunkRaw(raw, chunk.type, chunk.timestamp, dur, meta); }
   if (!(raw[0] === 0 && raw[1] === 0 && (raw[2] === 1 || (raw[2] === 0 && raw[3] === 1)))) {
     if (!state.made) throw new Error('no decoderConfig');
@@ -274,7 +275,7 @@ function addAacChunk(muxer, chunk, meta, state) {
   }
   state.sent = true;
   const raw = new Uint8Array(chunk.byteLength); chunk.copyTo(raw);
-  muxer.addAudioChunkRaw(raw, chunk.type, chunk.timestamp, chunk.duration ?? Math.round((1024 / state.sampleRate) * 1e6), meta);
+  muxer.addAudioChunkRaw(raw, chunk.type, chunk.timestamp, okDur(chunk.duration) ? chunk.duration : Math.round((1024 / state.sampleRate) * 1e6), meta);
 }
 // onStage(なまえ): いま どの段階か(止まったときに どこで止まったか わかるように)
 async function encodeVideoFile({ canvas, fps = 30, duration, draw, source, audio, bitrate = 8000000, onProgress, onStage = () => {} }) {
